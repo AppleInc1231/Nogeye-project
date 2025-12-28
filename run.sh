@@ -1,25 +1,29 @@
 #!/bin/bash
 
-# 1. סגירת מופעים קודמים (כדי למנוע כפילויות)
-echo "🧹 מנקה תהליכים ישנים..."
+# נתיבים (כדי שהמחשב יכיר את הפקודות)
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# הולך לתיקייה המדויקת
+cd /Users/sror-nog/Desktop/NogEye
+
+# --- שלב הניקוי המקדים ---
+# מוודא שאין שום NogEye שרץ כרגע לפני שמתחילים חדש
+# זה ימנע את המצב של "לופים" ורעשים כפולים
 pkill -f wake_chat.py
 
-# 2. הפעלת המוח (Backend) ברקע
-echo "🧠 מפעיל את NogEye Backend..."
-# אנחנו משתמשים ב-& כדי שזה ירוץ ברקע ולא יתקע את הסקריפט
+# --- הפעלה ---
+echo "🧠 Starting new Brain..."
 python3.11 backend/wake_chat.py &
 
-# שומרים את המזהה של התהליך כדי שנוכל לסגור אותו בסוף
-BACKEND_PID=$!
-
-# מחכים 2 שניות שהמוח ייטען
+# מחכה רגע שהמוח ייטען
 sleep 2
 
-# 3. הפעלת הפנים (Frontend)
-echo "👁️ מפעיל את הממשק..."
+echo "👁️ Starting UI..."
 cd frontend
-npx electron .
+# מפעיל את המסך ומחכה עד שתלחץ על האיקס
+/opt/homebrew/bin/npx electron .
 
-# 4. כשהחלון נסגר - סוגרים גם את המוח
-echo "🛑 סוגר את המערכת..."
-kill $BACKEND_PID
+# --- שלב הניקוי הסופי ---
+# ברגע שלחצת על האיקס בחלון, השורה הזו רצה:
+echo "🛑 Shutting down..."
+pkill -f wake_chat.py

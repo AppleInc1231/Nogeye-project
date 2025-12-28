@@ -1,21 +1,42 @@
 body {
-  background-color: transparent; /* רקע שקוף לגמרי */
+  background-color: transparent;
   color: white;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  overflow: hidden; /* מונע פסי גלילה */
+  overflow: hidden;
   margin: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
+  position: relative; /* חשוב למיקום הכפתור */
 }
 
 .container {
   text-align: center;
-  background: rgba(0, 0, 0, 0.6); /* רקע שחור חצי שקוף לקריאות */
+  background: rgba(0, 0, 0, 0.6);
   padding: 20px;
   border-radius: 20px;
   width: 80%;
+  position: relative;
+}
+
+/* עיצוב כפתור הסגירה */
+.close-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 20px;
+  cursor: pointer;
+  z-index: 9999;
+  transition: color 0.3s;
+}
+
+.close-btn:hover {
+  color: #ff4444; /* אדום במעבר עכבר */
+  transform: scale(1.1);
 }
 
 /* העיגול הפועם */
@@ -29,23 +50,20 @@ body {
   transition: all 0.3s ease;
 }
 
-/* מצב האזנה - פעימה רגועה */
 .orb.listening {
-  background: #00ff88; /* ירוק */
+  background: #00ff88;
   box-shadow: 0 0 30px #00ff88;
   animation: pulse 2s infinite;
 }
 
-/* מצב דיבור - רעידות מהירות */
 .orb.speaking {
-  background: #00d2ff; /* כחול */
+  background: #00d2ff;
   box-shadow: 0 0 50px #00d2ff;
   animation: talk 0.2s infinite alternate;
 }
 
-/* מצב המתנה/עיבוד */
 .orb.processing {
-  background: #ffcc00; /* צהוב */
+  background: #ffcc00;
   box-shadow: 0 0 30px #ffcc00;
   transform: scale(0.8);
 }
