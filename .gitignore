@@ -1,0 +1,15 @@
+# התעלם מקבצי סודות
+.env
+backend/.env
+chat-voice-key.json
+
+# התעלם מקבצים זמניים של פייתון
+__pycache__/
+*.py[cod]
+
+# התעלם מתיקיות כבדות של הממשק (אפשר להתקין אותן מחדש תמיד)
+node_modules/
+frontend/node_modules/
+
+# קבצי מערכת של מק
+.DS_Store
