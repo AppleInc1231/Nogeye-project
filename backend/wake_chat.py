@@ -26,8 +26,11 @@ from google.cloud import texttospeech
 from openai import OpenAI
 from duckduckgo_search import DDGS
 
-# --- ייבוא המוח החדש ---
+# --- ייבוא המוח החדש והזיכרון ---
 from memory_engine import save_memory, retrieve_memory, save_episode
+from consciousness import brain
+# --- ייבוא מכונת המצבים החדשה ---
+from conversation_state import state_machine, State
 
 # השתקת אזהרות
 warnings.filterwarnings("ignore")
@@ -41,7 +44,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(BASE_DIR, "chat-voice-key.json")
 
 # --- מנגנוני הגנה ויציבות ---
-file_lock = threading.Lock() # מנעול למניעת שבירת קבצים
+file_lock = threading.Lock() 
 
 try:
     pygame.mixer.init()
@@ -53,7 +56,7 @@ stop_flag = False
 last_interaction_time = time.time()
 is_dreaming = False
 
-# Cache ליומן - מונע תקיעות מערכת
+# Cache ליומן
 calendar_cache = {"data": "לא נבדק", "timestamp": 0}
 
 tts_client = texttospeech.TextToSpeechClient()
@@ -110,23 +113,39 @@ def play_audio_thread():
         pygame.mixer.music.load(OUTPUT_AUDIO)
         pygame.mixer.music.play()
         is_speaking = True
+        
         while pygame.mixer.music.get_busy():
             if stop_flag:
                 pygame.mixer.music.stop()
                 break
             time.sleep(0.05)
+            
         is_speaking = False
         stop_flag = False
+        
+        # עדכון מצב: סיימנו לדבר
+        # אם היינו בשיחה עמוקה, נשאר שם. אחרת חוזרים ל-IDLE
+        if state_machine.interaction_count > 0:
+             state_machine.set_state(State.DEEP_CONVERSATION)
+        else:
+             state_machine.set_state(State.IDLE)
+             
     except Exception as e:
         print(f"Audio Play Error: {e}")
         is_speaking = False
+        state_machine.set_state(State.IDLE)
 
 def speak(text):
     global is_speaking, stop_flag
+    
+    # עדכון מצב: מדבר
+    state_machine.set_state(State.SPEAKING)
+    
     if is_speaking:
         stop_flag = True
         time.sleep(0.1)
     if not text or len(text.strip()) == 0:
+        state_machine.set_state(State.IDLE) # שחרור מצב אם אין טקסט
         return
 
     try:
@@ -134,11 +153,16 @@ def speak(text):
         voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_id)
         audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
         response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+        
         with open(OUTPUT_AUDIO, "wb") as out:
             out.write(response.audio_content)
+            
+        # הפעלת הנגן בתהליך נפרד
         threading.Thread(target=play_audio_thread).start()
+        
     except Exception as e:
         print(f"TTS Error: {e}")
+        state_machine.set_state(State.IDLE) # שחרור במקרה שגיאה
 
 # --- ראייה ---
 def capture_screen():
@@ -183,7 +207,6 @@ def get_selected_text():
         return ""
 
 # --- אינטליגנציה וכלים ---
-
 def read_url_content(url):
     print(f"📖 קורא אתר: {url}")
     try:
@@ -231,7 +254,6 @@ def search_web(query):
 
 # --- Cache ליומן ---
 def get_calendar_events_cached():
-    """שולף יומן בשיטת Cache (פעם ב-10 דקות)"""
     global calendar_cache
     if time.time() - calendar_cache["timestamp"] < 600: # 10 דקות
         return calendar_cache["data"]
@@ -256,18 +278,11 @@ def get_calendar_events_cached():
         if result.returncode != 0:
             return "אין גישה ליומן."
         events = result.stdout.strip()
-        if not events:
-            data = "היומן ריק להיום."
-        else:
-            data = events
-        
+        data = events if events else "היומן ריק להיום."
         calendar_cache = {"data": data, "timestamp": time.time()}
         return data
     except:
         return "שגיאה בגישה ליומן."
-
-def get_calendar_events():
-    return get_calendar_events_cached()
 
 def add_calendar_event(title, date_time_str):
     print(f"📅 קובע פגישה: {title} ב-{date_time_str}")
@@ -283,7 +298,6 @@ def add_calendar_event(title, date_time_str):
         return "לא הצלחתי לפתוח את היומן."
 
 # --- כלים ופעולות ---
-
 def set_wallpaper_mac(image_path):
     try:
         script = f'tell application "System Events" to set picture of every desktop to "{image_path}"'
@@ -375,7 +389,6 @@ def send_whatsapp(contact_name, message):
     return f"הודעה נשלחה ל{contact_name}."
 
 # --- ליבת הרגש, אבולוציה וקשר ---
-
 def get_mood():
     return safe_read_json(MOOD_PATH, {"current_mood": "neutral"})
 
@@ -462,7 +475,6 @@ def subconscious_loop():
             update_ui("מוכנה")
 
 # --- סוכן אוטונומי ---
-
 def start_autonomous_agent(goal):
     print(f"🤖 סוכן אוטונומי התחיל: {goal}")
     speak(f"מתחיל משימה: {goal}")
@@ -567,8 +579,9 @@ def ask_gpt(messages):
     except:
         return None
 
+# --- הוספתי את הפונקציה שהייתה חסרה בקוד הראשון ---
 def startup_greeting():
-    print("🌅 מכין תדרוך בוקר (דאלאס)...")
+    print("🌅 מכין תדרוך בוקר...")
     try:
         weather_info = search_web("weather Dallas")
         news_info = search_web("top news Dallas Texas")
@@ -592,152 +605,51 @@ def startup_greeting():
         update_ui("מדבר", "", greeting)
         speak(greeting)
 
-# --- החלף את פונקציית proactive_check_loop הקיימת בזו ---
-
-def proactive_check_loop():
-    print("💓 דופק מודעות הופעל (כולל ראייה פסיבית)...")
-    
-    # טיימרים פנימיים
-    last_vision_time = 0
-    vision_interval = 600  # בדיקת ראייה כל 10 דקות (כדי לא להעמיס / לחסוך עלויות)
-    check_interval = 300   # בדיקת מחשבה כל 5 דקות
-
-    while True:
-        time.sleep(60) # בדיקת דופק בסיסית כל דקה
-        
-        # אם המערכת מדברת או מקשיבה כרגע - לא מפריעים
-        if is_speaking: continue
-        
-        current_time = time.time()
-        
-        # --- שלב 1: ראייה פסיבית (הצצה לעולם) ---
-        visual_context = "לא בוצעה סריקה ויזואלית לאחרונה."
-        
-        if current_time - last_vision_time > vision_interval:
-            print("👁️ מבצע סריקה ויזואלית שקטה...")
-            img_data = capture_webcam()
-            if img_data:
-                try:
-                    # שולחים ל-GPT לניתוח מהיר בלבד (בלי לדבר)
-                    vision_prompt = "ניתוח סיטואציה: תאר במשפט אחד מה רואים בחדר (מיקום המשתמש, תאורה, פעילות). אל תדבר למשתמש."
-                    response = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": "You are Nog's visual cortex. Analyze the image briefly for internal context only."},
-                            {"role": "user", "content": [
-                                {"type": "text", "text": vision_prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}}
-                            ]}
-                        ],
-                        max_tokens=50
-                    )
-                    visual_context = response.choices[0].message.content.strip()
-                    print(f"👁️ ראיתי: {visual_context}")
-                    
-                    # הוספה לזיכרון החושי
-                    ambient_buffer.append(f"[ראייה {datetime.now().strftime('%H:%M')}]: {visual_context}")
-                    last_vision_time = current_time
-                except Exception as e:
-                    print(f"Vision Error: {e}")
-
-        # --- שלב 2: מחשבה ויוזמה ---
-        # בודקים אם עבר מספיק זמן למחשבה יזומה
-        if current_time % check_interval < 60: 
-            mood = get_mood()
-            rel = load_relationship_state()
-            curr_clock = datetime.now().strftime("%H:%M")
-            calendar_data = get_calendar_events_cached()
-            recent_context = "\n".join(list(ambient_buffer)) # כולל עכשיו גם את הראייה!
-            psyche = load_psyche()
-            
-            # פרומפט שנותן לו רשות ליזום
-            thought_prompt = f"""
-            Identity: Nog (Partner). Time: {curr_clock}.
-            Context (Audio/Visual): {recent_context}
-            Calendar: {calendar_data}
-            Relationship: {rel['relationship_tier']}
-            
-            TASK: Generate an internal thought about the situation.
-            DECISION: Should you initiate conversation?
-            - YES only if: User looks distressed, bored, or there is a calendar event soon.
-            - NO if: User is focused, talking to someone else, or everything is normal.
-            
-            FORMAT:
-            If NO: "Thinking: [thought]"
-            If YES: "SPEAK: [short sentence to say]"
-            """
-            
-            try:
-                res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": thought_prompt}])
-                thought_res = res.choices[0].message.content.strip()
-                
-                if "SPEAK:" in thought_res:
-                    msg = thought_res.split("SPEAK:")[1].strip()
-                    print(f"🔔 יוזמה: {msg}")
-                    update_ui("מדבר", "(יוזמה)", msg)
-                    speak(msg)
-                    # מעדכנים מונולוג
-                    update_internal_monologue(f"יזמתי פנייה למאור: {msg}")
-                else:
-                    thought = thought_res.replace("Thinking:", "").strip()
-                    print(f"💭 מחשבה שקטה: {thought}")
-                    update_internal_monologue(thought)
-                    
-            except Exception as e:
-                print(f"Proactive Error: {e}")
-
-# --- ליבת החשיבה החדשה: Chain of Thought ---
-
-def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None):
+# --- פונקציית השיחה הראשית (הגרסה החכמה) ---
+def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None, decision_data=None):
     global last_interaction_time
     last_interaction_time = time.time()
     update_relationship(impact=0.5)
     
-    # חיווי שהמערכת מעבדת נתונים (שלב החשיבה)
+    # עדכון מצב: חושב
+    state_machine.set_state(State.THINKING)
+    state_machine.increment_interaction() # ספירת אינטראקציה
+
     update_ui("מעבד נתונים...", prompt, "")
     
     memory = safe_read_json(MEMORY_PATH, {"conversations": []})
     calendar_data = get_calendar_events_cached()
-    
-    # שליפת זיכרון עמוקה יותר (יותר תוצאות + מטא-דאטה)
     relevant_memories = retrieve_memory(prompt, n_results=4) 
     
-    evolution_rules = load_evolution()
-    psyche_profile = load_psyche()
-    monologue = load_internal_monologue()
-    rel = load_relationship_state()
-    mood_data = get_mood()
+    psyche_profile = safe_read_json(PSYCHE_PATH, {})
+    rel = safe_read_json(RELATIONSHIP_PATH, {"affinity_score": 0, "relationship_tier": "Stranger"})
     
-    current_mood = mood_data["current_mood"]
-    if any(w in prompt for w in ["טיפש", "גרוע", "סתום", "מעצבן"]):
-        current_mood = "annoyed"
-    elif any(w in prompt for w in ["תודה", "אלוף", "מלך", "אוהב"]):
-        current_mood = "happy"
-    elif any(w in prompt for w in ["עבודה", "פרויקט", "רציני"]):
-        current_mood = "focused"
-    
-    safe_write_json(MOOD_PATH, {"current_mood": current_mood, "energy_level": 80})
+    # --- הזרקת החלטות המוח לפרומפט ---
+    brain_instruction = ""
+    if decision_data:
+        style = decision_data.get('response_style', 'normal')
         
-    current_time = datetime.now().strftime("%A, %d/%m/%Y, %H:%M")
-    recent_conversation = "\n".join(list(ambient_buffer))
+        if style == 'short_tired': brain_instruction = "STATUS: Low energy. Be very brief, almost tired. Don't elaborate."
+        elif style == 'terse': brain_instruction = "STATUS: Annoyed. Be sharp, short, and to the point. No politeness."
+        elif style == 'action_oriented': brain_instruction = "STATUS: HIGH URGENCY. Skip all pleasantries. Execute commands immediately."
+        elif style == 'friendly_chatty': brain_instruction = "STATUS: High Affinity. Be warm, funny, use slang, be a 'bro'."
     
-    # --- המוח החדש: שרשרת מחשבה (Chain of Thought) ---
+    current_time = datetime.now().strftime("%H:%M")
+    recent_context = "\n".join(list(ambient_buffer))
+
     system_content = f"""
-    CORE IDENTITY: You are Nog. {json.dumps(psyche_profile)}. 
-    RELATIONSHIP: {rel['relationship_tier']} (Score: {rel['affinity_score']}).
-    INTERNAL STATE: Mood: {current_mood}, Last Thoughts: {json.dumps(monologue["last_thoughts"])}.
+    IDENTITY: {json.dumps(psyche_profile)}
+    RELATIONSHIP: {rel['relationship_tier']}
     
-    CONTEXTUAL AWARENESS:
-    - Time: {current_time}
-    - Calendar: {calendar_data}
-    - Recent Audio in Room: {recent_conversation}
-    - Long Term Memory (Facts & Episodes): {relevant_memories}
-    - Learned Rules: {evolution_rules}
+    BRAIN DIRECTIVE: {brain_instruction}
     
-    MISSION:
-    1. ANALYZE: Before speaking, think internally about Maor's intent, emotional state, and what he actually needs.
-    2. STRATEGIZE: Decide if you need to be supportive, direct, funny, or execute a command.
-    3. ACT: Give the final response as a partner.
+    CONTEXT:
+    Time: {current_time}
+    Calendar: {calendar_data}
+    Recent Audio: {recent_context}
+    Memory: {relevant_memories}
+    
+    MISSION: Analyze intent -> Strategize -> Act.
     
     STRICT COMMAND RULES:
     - To open apps: APP: Name
@@ -750,8 +662,6 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     """
     
     messages = [{"role": "system", "content": system_content}]
-    
-    # היסטוריה קצרה לפוקוס
     messages.extend(memory.get("conversations", [])[-6:])
     
     final_prompt = prompt
@@ -766,7 +676,7 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
         
     messages.append({"role": "user", "content": content_payload})
 
-    # --- Agent Loop (במקום ריקורסיה) ---
+    # --- Agent Loop ---
     turns = 0
     max_turns = 3
     
@@ -784,31 +694,24 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
             line = line.strip()
             if not line: continue
             
-            # ביצוע פקודה (אם יש)
             cmd_result = execute_line(line)
             if cmd_result:
                 tool_output = cmd_result
                 update_ui("פעולה", prompt, f"מבצע: {line}")
             
-            # סינון פקודות מהדיבור
             if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
                 spoken_response += line + " "
 
-        # דיבור
         if spoken_response.strip():
-            # עדכון מונולוג פנימי על בסיס מה שנאמר
             update_internal_monologue(f"אמרתי למאור: {spoken_response[:50]}...")
-            
             update_ui("מדבר", prompt, spoken_response)
             speak(spoken_response)
             print(f"Nog: {spoken_response}")
             
-        # שמירה לזיכרון
         memory["conversations"].append({"role": "user", "content": final_prompt})
         memory["conversations"].append({"role": "assistant", "content": answer})
         safe_write_json(MEMORY_PATH, memory)
 
-        # אם היה שימוש בכלי, נותנים למודל להגיב לתוצאה
         if tool_output:
             messages.append({"role": "assistant", "content": answer})
             messages.append({"role": "system", "content": f"Command Result: {tool_output}. Now respond to Maor based on this."})
@@ -817,19 +720,88 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
         else:
             break
 
+def proactive_check_loop():
+    print("💓 דופק מודעות הופעל (כולל ראייה פסיבית)...")
+    
+    last_vision_time = 0
+    vision_interval = 600 
+    check_interval = 300   
+
+    while True:
+        time.sleep(60) 
+        if is_speaking: continue
+        
+        current_time = time.time()
+        
+        # --- שלב 1: ראייה פסיבית ---
+        if current_time - last_vision_time > vision_interval:
+            print("👁️ מבצע סריקה ויזואלית שקטה...")
+            img_data = capture_webcam()
+            if img_data:
+                try:
+                    vision_prompt = "ניתוח סיטואציה: תאר במשפט אחד מה רואים בחדר. אל תדבר למשתמש."
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "You are Nog's visual cortex. Analyze the image briefly for internal context only."},
+                            {"role": "user", "content": [
+                                {"type": "text", "text": vision_prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}}
+                            ]}
+                        ],
+                        max_tokens=50
+                    )
+                    visual_context = response.choices[0].message.content.strip()
+                    print(f"👁️ ראיתי: {visual_context}")
+                    ambient_buffer.append(f"[ראייה {datetime.now().strftime('%H:%M')}]: {visual_context}")
+                    last_vision_time = current_time
+                except Exception as e:
+                    print(f"Vision Error: {e}")
+
+        # --- שלב 2: מחשבה ויוזמה (דרך המוח החדש) ---
+        if current_time % check_interval < 60: 
+            # התייעצות עם המוח האם ליזום
+            decision = brain.process_input("Proactive check", "proactive")
+            
+            if decision["should_respond"]:
+                prompt = "יזום פנייה קצרה למאור בהתבסס על ההקשר (ראייה/שמע אחרונים)."
+                chat_with_gpt(prompt, decision_data=decision)
+            else:
+                psyche = load_psyche()
+                curr_clock = datetime.now().strftime("%H:%M")
+                calendar_data = get_calendar_events_cached()
+                recent_context = "\n".join(list(ambient_buffer))
+                
+                thought_prompt = f"""
+                Identity: Nog. Time: {curr_clock}. Context: {recent_context}. Calendar: {calendar_data}.
+                Generate a short internal thought about the situation (no speaking).
+                """
+                try:
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": thought_prompt}])
+                    thought = res.choices[0].message.content.strip()
+                    print(f"💭 מחשבה שקטה: {thought}")
+                    update_internal_monologue(thought)
+                except: pass
+
 def listen_loop():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
     with mic as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
     update_ui("מוכנה")
-    print("\n🎤 --- Nog מקשיב (Multi-threaded V5 + CoT) ---")
+    print("\n🎤 --- Nog Connected to Brain (V5) ---")
     
+    # עכשיו הפונקציה מוגדרת ולא תהיה שגיאה
     threading.Thread(target=startup_greeting).start()
     threading.Thread(target=proactive_check_loop, daemon=True).start()
     threading.Thread(target=subconscious_loop, daemon=True).start()
 
     while True:
+        # בדיקה האם מותר להקשיב (מכונת מצבים)
+        if not state_machine.should_listen():
+            time.sleep(0.1)
+            continue
+
         try:
             with mic as source:
                 try:
@@ -842,7 +814,6 @@ def listen_loop():
                     continue
 
                 if text:
-                    # Interrupt
                     if any(w in text for w in ["עצור", "שתוק", "חלאס", "stop"]):
                         global stop_flag
                         if is_speaking:
@@ -878,9 +849,17 @@ def listen_loop():
                                 speak("מסתכל על המסך...")
                                 img = capture_screen()
                         
-                        chat_with_gpt(query, img, sel_txt)
-        except:
-            pass
+                        # --- התייעצות עם המוח המרכזי לפני תגובה ---
+                        decision = brain.process_input(query, "speech")
+                        
+                        if decision["should_respond"]:
+                            chat_with_gpt(query, img, sel_txt, decision_data=decision)
+                        else:
+                            print(f"🧠 המוח החליט להתעלם: {decision['internal_reasoning']}")
+                            update_ui("מתעלם")
+                            
+        except Exception as e:
+            print(f"Listen Loop Error: {e}")
 
 if __name__ == "__main__":
     listen_loop()
