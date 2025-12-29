@@ -3,44 +3,49 @@ const { exec } = require('child_process'); // רכיב להרצת פקודות �
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 500,
-    height: 700,
-    frame: false,        
-    transparent: true,   
-    alwaysOnTop: true,   
+    width: 600,            // הרחבתי קצת שיהיה מקום להילה
+    height: 750,
+    frame: false,          // ללא מסגרת (נקי)
+    transparent: true,     // שקוף (כדי לראות רק את העיגול)
+    alwaysOnTop: true,     // צף מעל הכל
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      enableRemoteModule: true
     }
   });
 
   win.loadFile('index.html');
 }
 
-// פונקציית ההשמדה - הורגת את הפייתון
+// --- מנגנון ניקוי תהליכים (חשוב מאוד!) ---
+
+// פונקציית ההשמדה - הורגת את הפייתון כדי שלא יישאר זומבי
 function killPython() {
     console.log("Killing Python process...");
-    // מריץ פקודת מערכת לחיסול המוח
+    // הורג את הסקריפט הספציפי שלנו
     exec('pkill -f wake_chat.py');
 }
 
-// כשלוחצים על האיקס בממשק
+// אירוע סגירה יזום מהממשק (אם יהיה כפתור X)
 ipcMain.on('close-app', () => {
-    killPython(); // קודם הורג את המוח
+    killPython(); 
     setTimeout(() => {
-        app.quit();   // ואז סוגר את האפליקציה
+        app.quit();   
     }, 500);
 });
 
 app.whenReady().then(createWindow);
 
-// כשהחלון נסגר בכל דרך אחרת (Cmd+Q)
+// סגירה כללית (Cmd+Q או סגירת חלון)
 app.on('window-all-closed', () => {
-    killPython();
-    app.quit();
+    killPython(); // מוודא הריגה
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
 
-// לפני שהאפליקציה יוצאת סופית
+// רשת ביטחון אחרונה לפני יציאה
 app.on('will-quit', () => {
     killPython();
 });

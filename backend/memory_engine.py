@@ -1,69 +1,83 @@
-import chromadb
 import os
-import uuid
+import chromadb
+from chromadb.config import Settings
 from datetime import datetime
+import uuid
 
-# הגדרת נתיב למסד הנתונים
+# הגדרות נתיבים
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "..", "data", "brain_db")
 
-# אתחול הלקוח
+# אתחול מסד הנתונים
 client = chromadb.PersistentClient(path=DB_PATH)
 
-# אוסף עובדות (מה שהיה עד עכשיו)
-facts_collection = client.get_or_create_collection(name="nog_facts")
+# יצירת אוספים (Collections) לזיכרון
+facts_collection = client.get_or_create_collection("facts")
+episodes_collection = client.get_or_create_collection("episodes")
 
-# אוסף חוויות (החדש! - Episodic Memory)
-episodes_collection = client.get_or_create_collection(name="nog_episodes")
+def save_memory(text, category="general"):
+    """שומר עובדה יבשה (למשל: למאור יש פגישה מחר)"""
+    try:
+        facts_collection.add(
+            documents=[text],
+            metadatas=[{"category": category, "timestamp": datetime.now().isoformat()}],
+            ids=[str(uuid.uuid4())]
+        )
+        return "זכרתי."
+    except Exception as e:
+        print(f"Error saving memory: {e}")
+        return f"שגיאה בזיכרון: {e}"
 
-def save_memory(text, metadata_type="fact"):
-    """שומר עובדה יבשה בזיכרון"""
-    print(f"💾 שומר עובדה: {text}")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    facts_collection.add(
-        documents=[text],
-        metadatas=[{"type": metadata_type, "timestamp": timestamp}],
-        ids=[str(uuid.uuid4())]
-    )
-    return "נשמר בזיכרון."
-
-def save_episode(description, user_emotion, ai_emotion, importance_level):
-    """שומר חוויה סובייקטיבית עם רגשות"""
-    print(f"🧠 שומר חוויה רגשית: {description} | רגש: {user_emotion}")
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # אנחנו שומרים את הטקסט, אבל מצמידים לו "תגיות רגש" במטא-דאטה
-    episodes_collection.add(
-        documents=[description],
-        metadatas=[{
-            "type": "episode",
-            "timestamp": timestamp,
-            "user_emotion": user_emotion,
-            "ai_emotion": ai_emotion,
-            "importance": importance_level
-        }],
-        ids=[str(uuid.uuid4())]
-    )
-    return "החוויה נצרבה בזיכרון הרגשי."
+def save_episode(description, user_emotion, ai_emotion, importance="medium"):
+    """שומר חוויה רגשית עם הקשר של זמן ורגש"""
+    try:
+        episodes_collection.add(
+            documents=[description],
+            metadatas=[{
+                "user_emotion": user_emotion,
+                "ai_emotion": ai_emotion,
+                "importance": importance,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+            }],
+            ids=[str(uuid.uuid4())]
+        )
+        print(f"🧠 נצרבה חוויה: {description}")
+        return "תיעדתי את החוויה בזיכרון לטווח ארוך."
+    except Exception as e:
+        print(f"Error saving episode: {e}")
+        return f"שגיאה בתיעוד: {e}"
 
 def retrieve_memory(query, n_results=3):
-    """שולף גם עובדות וגם חוויות רלוונטיות"""
-    print(f"🔍 מחפש במוח (עובדות + חוויות) ל: '{query}'...")
-    
-    # חיפוש בעובדות
-    fact_results = facts_collection.query(query_texts=[query], n_results=n_results)
-    facts = fact_results['documents'][0] if fact_results['documents'] else []
-    
-    # חיפוש בחוויות
-    episode_results = episodes_collection.query(query_texts=[query], n_results=n_results)
-    episodes = episode_results['documents'][0] if episode_results['documents'] else []
-    
-    combined_memory = ""
-    if facts:
-        combined_memory += "--- FACTS ---\n" + "\n".join([f"- {m}" for m in facts]) + "\n"
-    if episodes:
-        combined_memory += "--- PAST EXPERIENCES & FEELINGS ---\n" + "\n".join([f"- {m}" for m in episodes])
+    """
+    הלב של הזיכרון החדש:
+    שולף לא רק את הטקסט, אלא מפרמט אותו עם הזמן והרגש שהיו אז.
+    זה נותן למודל תחושת זמן והמשכיות.
+    """
+    try:
+        # שליפת חוויות
+        ep_results = episodes_collection.query(query_texts=[query], n_results=n_results)
+        # שליפת עובדות
+        fact_results = facts_collection.query(query_texts=[query], n_results=n_results)
         
-    if not combined_memory: return ""
-    return combined_memory
+        combined_context = []
+        
+        # עיבוד חוויות (הוספת מטא-דאטה לטקסט)
+        if ep_results['documents'] and ep_results['documents'][0]:
+            for i, doc in enumerate(ep_results['documents'][0]):
+                meta = ep_results['metadatas'][0][i]
+                timestamp = meta.get('timestamp', 'לא ידוע')
+                emotion = meta.get('user_emotion', 'ניטרלי')
+                combined_context.append(f"[חוויה מתאריך {timestamp} | רגש שלך: {emotion}]: {doc}")
+
+        # עיבוד עובדות
+        if fact_results['documents'] and fact_results['documents'][0]:
+            for doc in fact_results['documents'][0]:
+                combined_context.append(f"[עובדה]: {doc}")
+                
+        if not combined_context:
+            return "אין זיכרון רלוונטי ספציפי."
+            
+        return "\n".join(combined_context)
+    except Exception as e:
+        print(f"Error retrieving memory: {e}")
+        return ""

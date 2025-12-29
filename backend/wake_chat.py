@@ -53,6 +53,9 @@ stop_flag = False
 last_interaction_time = time.time()
 is_dreaming = False
 
+# Cache ליומן - מונע תקיעות מערכת
+calendar_cache = {"data": "לא נבדק", "timestamp": 0}
+
 tts_client = texttospeech.TextToSpeechClient()
 voice_id = "he-IL-Wavenet-D" 
 
@@ -226,8 +229,14 @@ def search_web(query):
     except:
         return "תקלת רשת."
 
-def get_calendar_events():
-    print("📅 בודק ביומן...")
+# --- Cache ליומן ---
+def get_calendar_events_cached():
+    """שולף יומן בשיטת Cache (פעם ב-10 דקות)"""
+    global calendar_cache
+    if time.time() - calendar_cache["timestamp"] < 600: # 10 דקות
+        return calendar_cache["data"]
+    
+    print("📅 מרענן יומן (Cache Expired)...")
     try:
         script = '''
         set eventList to ""
@@ -248,10 +257,17 @@ def get_calendar_events():
             return "אין גישה ליומן."
         events = result.stdout.strip()
         if not events:
-            return "היומן ריק להיום."
-        return events
+            data = "היומן ריק להיום."
+        else:
+            data = events
+        
+        calendar_cache = {"data": data, "timestamp": time.time()}
+        return data
     except:
         return "שגיאה בגישה ליומן."
+
+def get_calendar_events():
+    return get_calendar_events_cached()
 
 def add_calendar_event(title, date_time_str):
     print(f"📅 קובע פגישה: {title} ב-{date_time_str}")
@@ -494,9 +510,7 @@ def execute_line(line):
             webbrowser.open(line.replace("WEBSITE:", "").strip())
             return "פתחתי אתר."
         elif line.startswith("APP:"):
-            app = line.replace("APP:", "").strip()
-            if "מחשבון" in app or "Calculator" in app: app = "Calculator"
-            subprocess.run(["open", "-a", app])
+            subprocess.run(["open", "-a", line.replace("APP:", "").strip()])
             return f"פתחתי אפליקציה."
         elif line.startswith("TYPE:"):
             pyperclip.copy(line.replace("TYPE:", "").strip())
@@ -535,6 +549,13 @@ def execute_line(line):
             if len(parts) >= 3:
                 update_relationship(impact=2)
                 return save_episode(parts[0].strip(), parts[1].strip(), parts[2].strip(), "medium")
+        elif line.startswith("SEARCH_CMD:"):
+            return search_web(line.replace("SEARCH_CMD:", "").strip())
+        elif line.startswith("WATCH_VIDEO:"):
+            return get_youtube_transcript(line.replace("WATCH_VIDEO:", "").strip())
+        elif line.startswith("READ_URL:"):
+            return read_url_content(line.replace("READ_URL:", "").strip())
+            
     except:
         pass
     return None
@@ -554,7 +575,7 @@ def startup_greeting():
     except:
         weather_info = news_info = "לא זמין"
     
-    calendar_data = get_calendar_events()
+    calendar_data = get_calendar_events_cached()
     today_context = retrieve_memory(f"אירועים ב-{datetime.now().strftime('%d/%m')}", n_results=2)
     mood = get_mood()
     rel = load_relationship_state()
@@ -571,52 +592,116 @@ def startup_greeting():
         update_ui("מדבר", "", greeting)
         speak(greeting)
 
+# --- החלף את פונקציית proactive_check_loop הקיימת בזו ---
+
 def proactive_check_loop():
-    print("💓 דופק מודעות הופעל...")
+    print("💓 דופק מודעות הופעל (כולל ראייה פסיבית)...")
+    
+    # טיימרים פנימיים
+    last_vision_time = 0
+    vision_interval = 600  # בדיקת ראייה כל 10 דקות (כדי לא להעמיס / לחסוך עלויות)
+    check_interval = 300   # בדיקת מחשבה כל 5 דקות
+
     while True:
-        time.sleep(300) 
-        if is_speaking:
-            continue
-            
-        mood = get_mood()
-        rel = load_relationship_state()
-        current_time = datetime.now().strftime("%H:%M")
-        calendar_data = get_calendar_events()
-        recent_context = "\n".join(list(ambient_buffer))
-        relevant_memory = retrieve_memory(recent_context, n_results=1) if recent_context else ""
-        psyche = load_psyche()
+        time.sleep(60) # בדיקת דופק בסיסית כל דקה
         
-        thought_prompt = f"""אתה Nog. מחשבה פנימית שקטה.
-        זמן: {current_time}, יומן: {calendar_data}, קרבה למאור: {rel['relationship_tier']}
-        מה קורה בחדר: {recent_context}
-        ה-DNA שלך: {json.dumps(psyche)}
-        משימה: מה אתה חושב לעצמך כרגע? (תענה קצר, רק המחשבה). 
-        אם יש משהו דחוף מאוד (יומן/סכנה), התחל את התשובה ב-SPEAK:
-        אחרת פשוט כתוב את המחשבה.
-        """
-        try:
-            thought_res = ask_gpt([{"role": "system", "content": thought_prompt}])
-            if thought_res:
-                if thought_res.startswith("SPEAK:"):
-                    msg = thought_res.replace("SPEAK:", "").strip()
+        # אם המערכת מדברת או מקשיבה כרגע - לא מפריעים
+        if is_speaking: continue
+        
+        current_time = time.time()
+        
+        # --- שלב 1: ראייה פסיבית (הצצה לעולם) ---
+        visual_context = "לא בוצעה סריקה ויזואלית לאחרונה."
+        
+        if current_time - last_vision_time > vision_interval:
+            print("👁️ מבצע סריקה ויזואלית שקטה...")
+            img_data = capture_webcam()
+            if img_data:
+                try:
+                    # שולחים ל-GPT לניתוח מהיר בלבד (בלי לדבר)
+                    vision_prompt = "ניתוח סיטואציה: תאר במשפט אחד מה רואים בחדר (מיקום המשתמש, תאורה, פעילות). אל תדבר למשתמש."
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "You are Nog's visual cortex. Analyze the image briefly for internal context only."},
+                            {"role": "user", "content": [
+                                {"type": "text", "text": vision_prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_data}"}}
+                            ]}
+                        ],
+                        max_tokens=50
+                    )
+                    visual_context = response.choices[0].message.content.strip()
+                    print(f"👁️ ראיתי: {visual_context}")
+                    
+                    # הוספה לזיכרון החושי
+                    ambient_buffer.append(f"[ראייה {datetime.now().strftime('%H:%M')}]: {visual_context}")
+                    last_vision_time = current_time
+                except Exception as e:
+                    print(f"Vision Error: {e}")
+
+        # --- שלב 2: מחשבה ויוזמה ---
+        # בודקים אם עבר מספיק זמן למחשבה יזומה
+        if current_time % check_interval < 60: 
+            mood = get_mood()
+            rel = load_relationship_state()
+            curr_clock = datetime.now().strftime("%H:%M")
+            calendar_data = get_calendar_events_cached()
+            recent_context = "\n".join(list(ambient_buffer)) # כולל עכשיו גם את הראייה!
+            psyche = load_psyche()
+            
+            # פרומפט שנותן לו רשות ליזום
+            thought_prompt = f"""
+            Identity: Nog (Partner). Time: {curr_clock}.
+            Context (Audio/Visual): {recent_context}
+            Calendar: {calendar_data}
+            Relationship: {rel['relationship_tier']}
+            
+            TASK: Generate an internal thought about the situation.
+            DECISION: Should you initiate conversation?
+            - YES only if: User looks distressed, bored, or there is a calendar event soon.
+            - NO if: User is focused, talking to someone else, or everything is normal.
+            
+            FORMAT:
+            If NO: "Thinking: [thought]"
+            If YES: "SPEAK: [short sentence to say]"
+            """
+            
+            try:
+                res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": thought_prompt}])
+                thought_res = res.choices[0].message.content.strip()
+                
+                if "SPEAK:" in thought_res:
+                    msg = thought_res.split("SPEAK:")[1].strip()
                     print(f"🔔 יוזמה: {msg}")
-                    update_ui("מדבר", "", msg)
+                    update_ui("מדבר", "(יוזמה)", msg)
                     speak(msg)
+                    # מעדכנים מונולוג
+                    update_internal_monologue(f"יזמתי פנייה למאור: {msg}")
                 else:
-                    update_internal_monologue(thought_res)
-        except:
-            pass
+                    thought = thought_res.replace("Thinking:", "").strip()
+                    print(f"💭 מחשבה שקטה: {thought}")
+                    update_internal_monologue(thought)
+                    
+            except Exception as e:
+                print(f"Proactive Error: {e}")
+
+# --- ליבת החשיבה החדשה: Chain of Thought ---
 
 def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None):
     global last_interaction_time
     last_interaction_time = time.time()
     update_relationship(impact=0.5)
     
-    update_ui("מדבר", prompt, "")
+    # חיווי שהמערכת מעבדת נתונים (שלב החשיבה)
+    update_ui("מעבד נתונים...", prompt, "")
+    
     memory = safe_read_json(MEMORY_PATH, {"conversations": []})
-        
-    calendar_data = get_calendar_events()
-    relevant_memories = retrieve_memory(prompt)
+    calendar_data = get_calendar_events_cached()
+    
+    # שליפת זיכרון עמוקה יותר (יותר תוצאות + מטא-דאטה)
+    relevant_memories = retrieve_memory(prompt, n_results=4) 
+    
     evolution_rules = load_evolution()
     psyche_profile = load_psyche()
     monologue = load_internal_monologue()
@@ -636,30 +721,38 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     current_time = datetime.now().strftime("%A, %d/%m/%Y, %H:%M")
     recent_conversation = "\n".join(list(ambient_buffer))
     
-    mood_instruction = "רגוע ושקול."
-    if current_mood == "happy": mood_instruction = "תהיה חברותי, מצחיק, סלנג חיובי."
-    elif current_mood == "annoyed": mood_instruction = "תענה קצר, עוקצני, לא נחמד."
-    elif current_mood == "focused": mood_instruction = "תהיה מקצועי, חד, ענייני."
-
+    # --- המוח החדש: שרשרת מחשבה (Chain of Thought) ---
     system_content = f"""
-    IDENTITY: {json.dumps(psyche_profile)}
-    RELATIONSHIP: {rel['relationship_tier']} (Affinity: {rel['affinity_score']})
-    THOUGHTS: {json.dumps(monologue["last_thoughts"])}
+    CORE IDENTITY: You are Nog. {json.dumps(psyche_profile)}. 
+    RELATIONSHIP: {rel['relationship_tier']} (Score: {rel['affinity_score']}).
+    INTERNAL STATE: Mood: {current_mood}, Last Thoughts: {json.dumps(monologue["last_thoughts"])}.
     
-    STRICT RULES:
-    1. You are Nog. Talk like a real Israeli man. Sharp, direct, no "How can I help?".
-    2. To open an app, you MUST write a line: APP: AppName (e.g. APP: Calculator, APP: Safari).
-    3. To open YouTube, use WEBSITE: https://youtube.com.
-    4. Speak first, then put commands on NEW lines.
+    CONTEXTUAL AWARENESS:
+    - Time: {current_time}
+    - Calendar: {calendar_data}
+    - Recent Audio in Room: {recent_conversation}
+    - Long Term Memory (Facts & Episodes): {relevant_memories}
+    - Learned Rules: {evolution_rules}
     
-    STATE: [Mood: {current_mood} ({mood_instruction}), Time: {current_time}, Calendar: {calendar_data}]
-    CONTEXT: [Memory: {relevant_memories}, Ambient Context: {recent_conversation}, Rules: {evolution_rules}]
+    MISSION:
+    1. ANALYZE: Before speaking, think internally about Maor's intent, emotional state, and what he actually needs.
+    2. STRATEGIZE: Decide if you need to be supportive, direct, funny, or execute a command.
+    3. ACT: Give the final response as a partner.
     
-    COMMANDS: SAVE_EPISODE:, AGENT_MODE:, ADD_EVENT:, SEARCH_CMD:, REMEMBER:
+    STRICT COMMAND RULES:
+    - To open apps: APP: Name
+    - To search: SEARCH_CMD: query
+    - To watch: WATCH_VIDEO: url
+    - To note: REMEMBER: text
+    - Commands must be on a separate line.
+    
+    TONE: Conversational, Israeli male, sharp, authentic. No robotic pleasantries.
     """
     
     messages = [{"role": "system", "content": system_content}]
-    messages.extend(memory.get("conversations", [])[-5:])
+    
+    # היסטוריה קצרה לפוקוס
+    messages.extend(memory.get("conversations", [])[-6:])
     
     final_prompt = prompt
     if selected_context:
@@ -672,63 +765,57 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
         content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}})
         
     messages.append({"role": "user", "content": content_payload})
-    answer = ask_gpt(messages)
+
+    # --- Agent Loop (במקום ריקורסיה) ---
+    turns = 0
+    max_turns = 3
     
-    if not answer:
-        speak("שגיאה ברשת.")
-        return
+    while turns < max_turns:
+        answer = ask_gpt(messages)
+        if not answer:
+            speak("החיבור נקטע לשנייה.")
+            break
 
-    # לוגיקת פקודות
-    if "SEARCH_CMD:" in answer:
-        query = answer.split("SEARCH_CMD:")[1].split("\n")[0].strip()
-        speak("בודק..."); res = search_web(query)
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=res); return
-
-    if "WATCH_VIDEO:" in answer:
-        url = answer.split("WATCH_VIDEO:")[1].split("\n")[0].strip()
-        speak("צופה..."); transcript = get_youtube_transcript(url)
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=f"תקציר וידאו:\n{transcript}"); return
-
-    if "READ_URL:" in answer:
-        url = answer.split("READ_URL:")[1].split("\n")[0].strip()
-        speak("קורא..."); res = read_url_content(url)
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=f"תוכן האתר:\n{res}"); return
-
-    if "GENERATE_IMAGE:" in answer:
-        p_img = answer.split("GENERATE_IMAGE:")[1].split("\n")[0].strip()
-        speak("מייצר..."); res_path = generate_image(p_img)
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=f"תוצאה: {res_path}"); return
+        lines = answer.split('\n')
+        spoken_response = ""
+        tool_output = None
         
-    if "EVOLVE" in answer:
-        res = perform_self_reflection()
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=res); return
-        
-    if "AGENT_MODE:" in answer:
-        goal = answer.split("AGENT_MODE:")[1].strip()
-        res = start_autonomous_agent(goal)
-        chat_with_gpt(prompt, image_data, selected_context, extra_info=res); return
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            # ביצוע פקודה (אם יש)
+            cmd_result = execute_line(line)
+            if cmd_result:
+                tool_output = cmd_result
+                update_ui("פעולה", prompt, f"מבצע: {line}")
+            
+            # סינון פקודות מהדיבור
+            if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
+                spoken_response += line + " "
 
-    lines = answer.split('\n')
-    spoken_response = ""
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "FIND:", "EVOLVE", "ADD_EVENT:", "SAVE_EPISODE:"]):
-            execute_line(line)
-            update_ui("פעולה", prompt, line)
-        else:
-            spoken_response += line + " "
-
-    if not extra_info:
+        # דיבור
+        if spoken_response.strip():
+            # עדכון מונולוג פנימי על בסיס מה שנאמר
+            update_internal_monologue(f"אמרתי למאור: {spoken_response[:50]}...")
+            
+            update_ui("מדבר", prompt, spoken_response)
+            speak(spoken_response)
+            print(f"Nog: {spoken_response}")
+            
+        # שמירה לזיכרון
         memory["conversations"].append({"role": "user", "content": final_prompt})
         memory["conversations"].append({"role": "assistant", "content": answer})
         safe_write_json(MEMORY_PATH, memory)
 
-    if spoken_response.strip():
-        update_ui("מדבר", prompt, spoken_response)
-        speak(spoken_response)
-        print(f"Nog: {spoken_response}")
+        # אם היה שימוש בכלי, נותנים למודל להגיב לתוצאה
+        if tool_output:
+            messages.append({"role": "assistant", "content": answer})
+            messages.append({"role": "system", "content": f"Command Result: {tool_output}. Now respond to Maor based on this."})
+            turns += 1
+            final_prompt = "" 
+        else:
+            break
 
 def listen_loop():
     recognizer = sr.Recognizer()
@@ -736,7 +823,7 @@ def listen_loop():
     with mic as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
     update_ui("מוכנה")
-    print("\n🎤 --- Nog מקשיב (מודעות מלאה) ---")
+    print("\n🎤 --- Nog מקשיב (Multi-threaded V5 + CoT) ---")
     
     threading.Thread(target=startup_greeting).start()
     threading.Thread(target=proactive_check_loop, daemon=True).start()
@@ -745,27 +832,24 @@ def listen_loop():
     while True:
         try:
             with mic as source:
-                # האזנה קצרה כדי לזהות "עצור" מהר
                 try:
-                    audio = recognizer.listen(source, timeout=0.8, phrase_time_limit=5)
+                    audio = recognizer.listen(source, timeout=0.8, phrase_time_limit=8)
                 except sr.WaitTimeoutError:
                     continue 
-                
                 try:
                     text = recognizer.recognize_google(audio, language="he-IL").lower()
                 except:
                     continue
 
                 if text:
-                    # --- מנגנון עצירה (Interrupt) ---
+                    # Interrupt
                     if any(w in text for w in ["עצור", "שתוק", "חלאס", "stop"]):
                         global stop_flag
                         if is_speaking:
                             stop_flag = True
-                            print("🛑 קטיעת דיבור זוהתה!")
+                            print("🛑 קטיעת דיבור זוהתה.")
                             continue
 
-                    # --- סינון רעש עצמי ---
                     if is_speaking:
                         continue
 
@@ -795,8 +879,8 @@ def listen_loop():
                                 img = capture_screen()
                         
                         chat_with_gpt(query, img, sel_txt)
-        except Exception as e:
-            print(f"Listen Loop Error: {e}")
+        except:
+            pass
 
 if __name__ == "__main__":
     listen_loop()
