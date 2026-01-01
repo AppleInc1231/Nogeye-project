@@ -9,7 +9,13 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
+from dotenv import load_dotenv  # <-- הוספה קריטית
 from memory_engine import save_memory, save_episode
+
+# --- טעינת הגדרות (חובה לפני חיבור ל-OpenAI) ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+load_dotenv(ENV_PATH)
 
 # הגדרות לקוח OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
