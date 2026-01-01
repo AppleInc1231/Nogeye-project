@@ -3,7 +3,7 @@ import chromadb
 from datetime import datetime
 import uuid
 import time
-from memory_priority import MemoryPriority  # <-- החיבור למודול הדירוג שיצרנו
+from memory_priority import MemoryPriority
 
 # הגדרות נתיבים
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,15 +19,23 @@ episodes_collection = client.get_or_create_collection("episodes")
 def save_memory(text, category="general", importance="medium"):
     """
     שומר עובדה עם דירוג חשיבות.
-    importance: 'high', 'medium', 'low'
+    מקבל: importance (high/medium/low) או מספר.
     """
     try:
+        # המרה בטוחה אם importance הוא מחרוזת
+        imp_score = 0.5
+        if isinstance(importance, str):
+            if importance == "high": imp_score = 1.0
+            elif importance == "low": imp_score = 0.2
+        elif isinstance(importance, (int, float)):
+            imp_score = float(importance)
+
         facts_collection.add(
             documents=[text],
             metadatas=[{
                 "category": category, 
-                "timestamp": time.time(), # שומרים כ-Unix Timestamp לחישובי דעיכה
-                "importance": importance,
+                "timestamp": time.time(),
+                "importance": imp_score,
                 "access_count": 0
             }],
             ids=[str(uuid.uuid4())]
@@ -63,61 +71,40 @@ def retrieve_memory(query, n_results=5):
     שליפת זיכרון חכמה המשתמשת ב-MemoryPriority
     """
     try:
-        # 1. שליפה גולמית מ-ChromaDB (יותר תוצאות ממה שצריך, כדי שנסנן)
         raw_results = facts_collection.query(query_texts=[query], n_results=n_results + 3)
-        
         memories_to_sort = []
         
-        # 2. המרה לפורמט שהממיין שלנו מבין
         if raw_results['documents'] and raw_results['documents'][0]:
             docs = raw_results['documents'][0]
             metas = raw_results['metadatas'][0]
-            distances = raw_results['distances'][0] # Chroma מחזיר מרחק (הפוך לדמיון)
+            distances = raw_results['distances'][0]
             ids = raw_results['ids'][0]
 
             for i in range(len(docs)):
-                # המרת מרחק לציון דמיון (0-1) בקירוב
                 similarity = max(0, 1 - distances[i])
-                
-                mem_obj = {
-                    "content": docs[i],
-                    "metadata": metas[i],
-                    "id": ids[i]
-                }
-                # שומרים כזוג (זיכרון, ציון דמיון)
+                mem_obj = {"content": docs[i], "metadata": metas[i], "id": ids[i]}
                 memories_to_sort.append((mem_obj, similarity))
 
-        # 3. שימוש ב-MemoryPriority למיון חכם
-        # זה ייתן עדיפות לזיכרונות חשובים וחדשים על פני סתם דומים
         sorted_memories = MemoryPriority.sort_memories(memories_to_sort)
-        
-        # 4. עדכון מונה שימוש (Access Count) לזיכרונות שנבחרו
-        # (זה מחזק זיכרונות שמשתמשים בהם הרבה)
         top_memories = sorted_memories[:n_results]
+        
         for mem in top_memories:
             _update_access_count(mem['id'], mem['metadata'])
 
-        # 5. פרמוט הטקסט ל-GPT
         combined_context = []
         for mem in top_memories:
             meta = mem['metadata']
-            imp_marker = "⭐" if meta.get('importance') == 'high' else ""
-            
-            # אם זה timestamp ישן (מחרוזת) או חדש (float), נסה להציג קריא
+            imp_marker = "⭐" if meta.get('importance', 0) > 0.8 else ""
             ts = meta.get('timestamp')
             date_str = "בעבר"
             try:
                 if isinstance(ts, float):
                     date_str = datetime.fromtimestamp(ts).strftime('%d/%m')
-                else:
-                    date_str = str(ts).split('T')[0]
             except: pass
 
             combined_context.append(f"[{date_str}]{imp_marker} {mem['content']}")
                 
-        if not combined_context:
-            return "אין זיכרון רלוונטי."
-            
+        if not combined_context: return "אין זיכרון רלוונטי."
         return "\n".join(combined_context)
 
     except Exception as e:
@@ -125,10 +112,8 @@ def retrieve_memory(query, n_results=5):
         return ""
 
 def _update_access_count(doc_id, metadata):
-    """פונקציית עזר לעדכון מונה הצפיות בזיכרון"""
     try:
         new_count = metadata.get('access_count', 0) + 1
         metadata['access_count'] = new_count
         facts_collection.update(ids=[doc_id], metadatas=[metadata])
-    except:
-        pass
+    except: pass

@@ -11,26 +11,21 @@ import time
 import warnings
 import pyautogui
 import base64
-import subprocess 
-import webbrowser 
-import pyperclip
 import cv2
-import requests 
-from bs4 import BeautifulSoup
-from youtube_transcript_api import YouTubeTranscriptApi
+import subprocess  # חובה עבור יומן
+import pyperclip   # חובה עבור העתקה
 from datetime import datetime, timedelta
 from collections import deque
 from io import BytesIO
 from dotenv import load_dotenv
 from google.cloud import texttospeech
 from openai import OpenAI
-from duckduckgo_search import DDGS
 
-# --- ייבוא המוח החדש והזיכרון ---
+# --- ייבוא המוח, הזיכרון והכלים החדשים ---
 from memory_engine import save_memory, retrieve_memory, save_episode
 from consciousness import brain
-# --- ייבוא מכונת המצבים החדשה ---
 from conversation_state import state_machine, State
+from tools_engine import tools  # המנוע שמחליף את הפונקציות הישנות
 
 # השתקת אזהרות
 warnings.filterwarnings("ignore")
@@ -72,7 +67,6 @@ MONOLOGUE_PATH = os.path.join(DATA_DIR, "internal_monologue.json")
 RELATIONSHIP_PATH = os.path.join(DATA_DIR, "relationship_state.json")
 LIVE_JSON_PATH = os.path.join(BASE_DIR, "..", "frontend", "live.json")
 OUTPUT_AUDIO = os.path.join(BASE_DIR, "output.mp3")
-DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
 
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
@@ -124,7 +118,6 @@ def play_audio_thread():
         stop_flag = False
         
         # עדכון מצב: סיימנו לדבר
-        # אם היינו בשיחה עמוקה, נשאר שם. אחרת חוזרים ל-IDLE
         if state_machine.interaction_count > 0:
              state_machine.set_state(State.DEEP_CONVERSATION)
         else:
@@ -145,11 +138,29 @@ def speak(text):
         stop_flag = True
         time.sleep(0.1)
     if not text or len(text.strip()) == 0:
-        state_machine.set_state(State.IDLE) # שחרור מצב אם אין טקסט
+        state_machine.set_state(State.IDLE)
         return
 
     try:
-        synthesis_input = texttospeech.SynthesisInput(text=text)
+        # --- שדרוג: התאמת הקול לרגש (SSML) ---
+        current_mood = brain.emotion_engine.momentum 
+        current_energy = brain.emotion_engine.energy 
+        
+        speaking_rate = 1.0
+        
+        if current_mood < -0.4: speaking_rate = 1.2  # עצבני = מהר
+        elif current_energy < 0.4: speaking_rate = 0.9 # עייף = לאט
+        elif current_mood > 0.6: speaking_rate = 1.1 # שמח = קצת מהר
+
+        ssml_text = f"""
+        <speak>
+            <prosody rate="{speaking_rate}">
+                {text}
+            </prosody>
+        </speak>
+        """
+
+        synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
         voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_id)
         audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
         response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
@@ -157,14 +168,13 @@ def speak(text):
         with open(OUTPUT_AUDIO, "wb") as out:
             out.write(response.audio_content)
             
-        # הפעלת הנגן בתהליך נפרד
         threading.Thread(target=play_audio_thread).start()
         
     except Exception as e:
         print(f"TTS Error: {e}")
-        state_machine.set_state(State.IDLE) # שחרור במקרה שגיאה
+        state_machine.set_state(State.IDLE)
 
-# --- ראייה ---
+# --- ראייה (Input Only) ---
 def capture_screen():
     try:
         screenshot = pyautogui.screenshot()
@@ -206,59 +216,12 @@ def get_selected_text():
     except:
         return ""
 
-# --- אינטליגנציה וכלים ---
-def read_url_content(url):
-    print(f"📖 קורא אתר: {url}")
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        for script in soup(["script", "style", "nav", "footer"]):
-            script.extract()
-        text = soup.get_text()
-        lines = (line.strip() for line in text.splitlines())
-        clean_text = '\n'.join(chunk for line in lines for chunk in line.split("  ") if chunk)
-        return clean_text[:8000]
-    except Exception as e:
-        return f"שגיאה בקריאה: {e}"
-
-def get_youtube_transcript(video_url):
-    print(f"📺 צופה ביוטיוב: {video_url}")
-    try:
-        if "v=" in video_url:
-            video_id = video_url.split("v=")[1].split("&")[0]
-        elif "youtu.be/" in video_url:
-            video_id = video_url.split("/")[-1]
-        else:
-            return "לינק לא תקין."
-        try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
-        except: 
-            t_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            transcript = t_list.find_generated_transcript(['en', 'he']).fetch()
-        full_text = " ".join([t['text'] for t in transcript])
-        return full_text[:10000]
-    except Exception as e:
-        return f"שגיאה ביוטיוב: {e}"
-
-def search_web(query):
-    try:
-        results_text = ""
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, region='wt-wt', max_results=2))
-            for i, r in enumerate(results):
-                results_text += f"\nמקור {i+1}: {r['title']} - {r['body']}"
-        return results_text if results_text else "לא מצאתי מידע."
-    except:
-        return "תקלת רשת."
-
 # --- Cache ליומן ---
 def get_calendar_events_cached():
     global calendar_cache
-    if time.time() - calendar_cache["timestamp"] < 600: # 10 דקות
+    if time.time() - calendar_cache["timestamp"] < 600: 
         return calendar_cache["data"]
     
-    print("📅 מרענן יומן (Cache Expired)...")
     try:
         script = '''
         set eventList to ""
@@ -283,110 +246,6 @@ def get_calendar_events_cached():
         return data
     except:
         return "שגיאה בגישה ליומן."
-
-def add_calendar_event(title, date_time_str):
-    print(f"📅 קובע פגישה: {title} ב-{date_time_str}")
-    try:
-        subprocess.run(["open", "-a", "Calendar"])
-        time.sleep(1)
-        pyautogui.hotkey('command', 'n')
-        time.sleep(0.5)
-        pyautogui.write(f"{title} at {date_time_str}")
-        pyautogui.press('enter')
-        return "פתחתי את היומן והזנתי את הפרטים."
-    except:
-        return "לא הצלחתי לפתוח את היומן."
-
-# --- כלים ופעולות ---
-def set_wallpaper_mac(image_path):
-    try:
-        script = f'tell application "System Events" to set picture of every desktop to "{image_path}"'
-        subprocess.run(["osascript", "-e", script])
-        return "הטפט הוחלף."
-    except:
-        return "תקלה בהחלפת טפט."
-
-def generate_image(prompt):
-    print(f"🎨 מייצר תמונה: {prompt}")
-    try:
-        response = client.images.generate(model="dall-e-3", prompt=prompt, size="1024x1024", quality="standard", n=1)
-        image_url = response.data[0].url
-        img_data = requests.get(image_url).content
-        filename = f"nog_art_{int(time.time())}.png"
-        file_path = os.path.join(DESKTOP_PATH, filename)
-        with open(file_path, 'wb') as handler:
-            handler.write(img_data)
-        return f"נשמר: {file_path}"
-    except Exception as e:
-        return f"שגיאה: {e}"
-
-def create_file_on_desktop(filename, content):
-    try:
-        if "." not in filename:
-            filename += ".txt"
-        file_path = os.path.join(DESKTOP_PATH, filename)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"יצרתי את הקובץ {filename}."
-    except:
-        return "שגיאה ביצירת קובץ."
-
-def find_files_on_mac(query):
-    try:
-        cmd = ["mdfind", "-name", query]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        paths = result.stdout.strip().split('\n')[:5]
-        if not paths or paths == ['']:
-            return "לא מצאתי קבצים."
-        return "קבצים שנמצאו:\n" + "\n".join(paths)
-    except:
-        return "שגיאה בחיפוש."
-
-def close_app_on_mac(app_name):
-    try:
-        script = f'quit app "{app_name}"'
-        os.system(f"osascript -e '{script}'")
-        return f"סגרתי את {app_name}."
-    except:
-        return "תקלה בסגירה."
-
-def control_system(action):
-    try:
-        if action == "VOL_UP":
-            os.system("osascript -e 'set volume output volume (output volume of (get volume settings) + 10)'")
-        elif action == "VOL_DOWN":
-            os.system("osascript -e 'set volume output volume (output volume of (get volume settings) - 10)'")
-        elif action == "MUTE":
-            os.system("osascript -e 'set volume output muted true'")
-        elif action == "UNMUTE":
-            os.system("osascript -e 'set volume output muted false'")
-        elif action == "PLAY_PAUSE":
-            os.system("osascript -e 'tell application \"System Events\" to key code 16'") 
-        elif action == "NEXT":
-            os.system("osascript -e 'tell application \"System Events\" to key code 19'")
-        elif action == "PREV":
-            os.system("osascript -e 'tell application \"System Events\" to key code 20'")
-    except:
-        return "תקלה."
-    return "בוצע."
-
-def send_whatsapp(contact_name, message):
-    subprocess.run(["open", "-a", "WhatsApp"])
-    time.sleep(1.5)
-    pyautogui.hotkey('command', 'f')
-    time.sleep(0.5)
-    pyperclip.copy(contact_name)
-    pyautogui.hotkey('command', 'v')
-    time.sleep(1.0)
-    pyautogui.press('down')
-    time.sleep(0.2)
-    pyautogui.press('enter')
-    time.sleep(0.5)
-    pyperclip.copy(message)
-    pyautogui.hotkey('command', 'v')
-    time.sleep(0.5)
-    pyautogui.press('enter')
-    return f"הודעה נשלחה ל{contact_name}."
 
 # --- ליבת הרגש, אבולוציה וקשר ---
 def get_mood():
@@ -428,12 +287,6 @@ def update_relationship(impact=1):
     safe_write_json(RELATIONSHIP_PATH, state)
     print(f"📈 רמת קשר: {state['relationship_tier']} ({state['affinity_score']})")
 
-def load_evolution():
-    data = safe_read_json(EVOLUTION_PATH, [])
-    if not data:
-        return "אין חוקים נלמדים."
-    return "\n".join([f"⚡ {item}" for item in data])
-
 def perform_self_reflection(auto_mode=False):
     print("🧬 מבצע אבולוציה עצמית...")
     if not auto_mode:
@@ -452,7 +305,7 @@ def perform_self_reflection(auto_mode=False):
         new_rules = [line.strip().replace("- ", "") for line in response.choices[0].message.content.strip().split("\n") if line.strip()]
         safe_write_json(EVOLUTION_PATH, new_rules)
         if auto_mode:
-            save_memory(f"בזמן חלימה למדתי: {', '.join(new_rules)}")
+            save_memory(f"בזמן חלימה למדתי: {', '.join(new_rules)}", importance="high")
         return "השתדרגתי."
     except:
         return "נכשלתי."
@@ -474,104 +327,6 @@ def subconscious_loop():
             print("☀️ סיימתי לחלום.")
             update_ui("מוכנה")
 
-# --- סוכן אוטונומי ---
-def start_autonomous_agent(goal):
-    print(f"🤖 סוכן אוטונומי התחיל: {goal}")
-    speak(f"מתחיל משימה: {goal}")
-    history = []
-    max_steps = 5 
-    for i in range(max_steps):
-        agent_prompt = f"""אתה במצב סוכן. מטרה: {goal}. היסטוריה: {history}.
-        החזר פקודה: SEARCH_CMD, READ_URL, WATCH_VIDEO, CREATE_FILE, FIND, ADD_EVENT, DONE"""
-        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": agent_prompt}])
-        next_step = response.choices[0].message.content.strip()
-        print(f"🤖 הסוכן החליט: {next_step}")
-        
-        if "DONE:" in next_step:
-            return f"משימה הושלמה: {next_step.replace('DONE:', '').strip()}"
-        
-        result = "בוצע."
-        if "SEARCH_CMD:" in next_step:
-            result = search_web(next_step.split("SEARCH_CMD:")[1].strip())
-        elif "READ_URL:" in next_step:
-            result = read_url_content(next_step.split("READ_URL:")[1].strip())
-        elif "WATCH_VIDEO:" in next_step:
-            result = get_youtube_transcript(next_step.split("WATCH_VIDEO:")[1].strip())
-        elif "CREATE_FILE:" in next_step:
-            parts = next_step.split("CREATE_FILE:")[1].split("|||", 1)
-            if len(parts) == 2:
-                result = create_file_on_desktop(parts[0].strip(), parts[1].strip())
-        elif "FIND:" in next_step:
-            result = find_files_on_mac(next_step.split("FIND:")[1].strip())
-        elif "ADD_EVENT:" in next_step:
-            parts = next_step.split("ADD_EVENT:")[1].split("|||", 1)
-            if len(parts) == 2:
-                result = add_calendar_event(parts[0].strip(), parts[1].strip())
-            
-        history.append(f"Step: {next_step} -> Result: {result[:500]}...")
-        update_ui("חושב", "", f"צעד {i+1}: {next_step}")
-        
-    return "הגעתי למקסימום צעדים. " + str(history)
-
-def execute_line(line):
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        if line.startswith("WEBSITE:"):
-            webbrowser.open(line.replace("WEBSITE:", "").strip())
-            return "פתחתי אתר."
-        elif line.startswith("APP:"):
-            subprocess.run(["open", "-a", line.replace("APP:", "").strip()])
-            return f"פתחתי אפליקציה."
-        elif line.startswith("TYPE:"):
-            pyperclip.copy(line.replace("TYPE:", "").strip())
-            pyautogui.hotkey('command', 'v')
-            return "הקלדתי."
-        elif line.startswith("REMEMBER:"):
-            return save_memory(line.replace("REMEMBER:", "").strip())
-        elif line.startswith("WHATSAPP:"): 
-            parts = line.replace("WHATSAPP:", "").split(",", 1)
-            if len(parts) == 2:
-                return send_whatsapp(parts[0].strip(), parts[1].strip())
-        elif line.startswith("SYSTEM:"):
-            return control_system(line.replace("SYSTEM:", "").strip())
-        elif line.startswith("CLOSE:"):
-            return close_app_on_mac(line.replace("CLOSE:", "").strip())
-        elif line.startswith("FIND:"):
-            return find_files_on_mac(line.replace("FIND:", "").strip())
-        elif line.startswith("CREATE_FILE:"):
-            parts = line.replace("CREATE_FILE:", "").split("|||", 1)
-            if len(parts) == 2:
-                return create_file_on_desktop(parts[0].strip(), parts[1].strip())
-        elif line.startswith("GENERATE_IMAGE:"):
-            return generate_image(line.replace("GENERATE_IMAGE:", "").strip())
-        elif line.startswith("SET_WALLPAPER:"):
-            return set_wallpaper_mac(line.replace("SET_WALLPAPER:", "").strip())
-        elif line.startswith("EVOLVE"):
-            return perform_self_reflection()
-        elif line.startswith("AGENT_MODE:"):
-            return start_autonomous_agent(line.replace("AGENT_MODE:", "").strip())
-        elif line.startswith("ADD_EVENT:"):
-            parts = line.replace("ADD_EVENT:", "").split("|||", 1)
-            if len(parts) == 2:
-                return add_calendar_event(parts[0].strip(), parts[1].strip())
-        elif line.startswith("SAVE_EPISODE:"):
-            parts = line.replace("SAVE_EPISODE:", "").split("|||")
-            if len(parts) >= 3:
-                update_relationship(impact=2)
-                return save_episode(parts[0].strip(), parts[1].strip(), parts[2].strip(), "medium")
-        elif line.startswith("SEARCH_CMD:"):
-            return search_web(line.replace("SEARCH_CMD:", "").strip())
-        elif line.startswith("WATCH_VIDEO:"):
-            return get_youtube_transcript(line.replace("WATCH_VIDEO:", "").strip())
-        elif line.startswith("READ_URL:"):
-            return read_url_content(line.replace("READ_URL:", "").strip())
-            
-    except:
-        pass
-    return None
-
 def ask_gpt(messages):
     try:
         response = client.chat.completions.create(model="gpt-4o", messages=messages)
@@ -579,14 +334,13 @@ def ask_gpt(messages):
     except:
         return None
 
-# --- הוספתי את הפונקציה שהייתה חסרה בקוד הראשון ---
+# --- תדרוך בוקר ---
 def startup_greeting():
     print("🌅 מכין תדרוך בוקר...")
-    try:
-        weather_info = search_web("weather Dallas")
-        news_info = search_web("top news Dallas Texas")
-    except:
-        weather_info = news_info = "לא זמין"
+    
+    # שימוש ב-tools החדש
+    weather_info = tools.search_web("weather Dallas")
+    news_info = tools.search_web("top news Dallas Texas")
     
     calendar_data = get_calendar_events_cached()
     today_context = retrieve_memory(f"אירועים ב-{datetime.now().strftime('%d/%m')}", n_results=2)
@@ -613,7 +367,7 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     
     # עדכון מצב: חושב
     state_machine.set_state(State.THINKING)
-    state_machine.increment_interaction() # ספירת אינטראקציה
+    state_machine.increment_interaction() 
 
     update_ui("מעבד נתונים...", prompt, "")
     
@@ -637,9 +391,13 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     current_time = datetime.now().strftime("%H:%M")
     recent_context = "\n".join(list(ambient_buffer))
 
+    # חילוץ חוקים נלמדים מהמוח
+    learned_rules_text = decision_data.get('learned_context', 'None') if decision_data else 'None'
+
     system_content = f"""
     IDENTITY: {json.dumps(psyche_profile)}
     RELATIONSHIP: {rel['relationship_tier']}
+    LEARNED RULES (EVOLUTION): {learned_rules_text}
     
     BRAIN DIRECTIVE: {brain_instruction}
     
@@ -651,12 +409,11 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     
     MISSION: Analyze intent -> Strategize -> Act.
     
-    STRICT COMMAND RULES:
-    - To open apps: APP: Name
-    - To search: SEARCH_CMD: query
-    - To watch: WATCH_VIDEO: url
-    - To note: REMEMBER: text
-    - Commands must be on a separate line.
+    COMMANDS (One per line):
+    APP: Name | WEBSITE: url | SEARCH_CMD: query | WATCH_VIDEO: url | REMEMBER: text
+    WHATSAPP: name, msg | SYSTEM: VOL_UP/DOWN/MUTE | CLOSE: app | FIND: file
+    CREATE_FILE: name ||| content | GENERATE_IMAGE: prompt | ADD_EVENT: title at date
+    AGENT_MODE: goal | SAVE_EPISODE: desc ||| emotion_u ||| emotion_ai
     
     TONE: Conversational, Israeli male, sharp, authentic. No robotic pleasantries.
     """
@@ -694,13 +451,18 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
             line = line.strip()
             if not line: continue
             
-            cmd_result = execute_line(line)
+            # --- שימוש ב-tools engine החדש ---
+            cmd_result = tools.handle_command(line)
+            
             if cmd_result:
                 tool_output = cmd_result
                 update_ui("פעולה", prompt, f"מבצע: {line}")
             
-            if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
-                spoken_response += line + " "
+            # אם זו לא פקודה (cmd_result הוא None)
+            if not cmd_result:
+                # בדיקה כפולה רק ליתר ביטחון (למנוע הקראת פקודות שלא זוהו)
+                if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
+                    spoken_response += line + " "
 
         if spoken_response.strip():
             update_internal_monologue(f"אמרתי למאור: {spoken_response[:50]}...")
@@ -731,6 +493,11 @@ def proactive_check_loop():
         time.sleep(60) 
         if is_speaking: continue
         
+        # --- שדרוג: מצב לילה (שעות שקט) ---
+        current_hour = datetime.now().hour
+        if 23 <= current_hour or current_hour < 7:
+            continue
+
         current_time = time.time()
         
         # --- שלב 1: ראייה פסיבית ---
@@ -760,7 +527,6 @@ def proactive_check_loop():
 
         # --- שלב 2: מחשבה ויוזמה (דרך המוח החדש) ---
         if current_time % check_interval < 60: 
-            # התייעצות עם המוח האם ליזום
             decision = brain.process_input("Proactive check", "proactive")
             
             if decision["should_respond"]:
@@ -789,7 +555,7 @@ def listen_loop():
     with mic as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
     update_ui("מוכנה")
-    print("\n🎤 --- Nog Connected to Brain (V5) ---")
+    print("\n🎤 --- Nog Connected to Brain (V5 + Tools Refactor) ---")
     
     # עכשיו הפונקציה מוגדרת ולא תהיה שגיאה
     threading.Thread(target=startup_greeting).start()
