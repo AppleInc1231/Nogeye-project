@@ -545,7 +545,7 @@ def proactive_check_loop():
     print("💓 דופק מודעות הופעל (כולל ראייה פסיבית)...")
     
     last_vision_time = 0
-    vision_interval = 600 
+    vision_interval = 1800
     check_interval = 300   
 
     while True:

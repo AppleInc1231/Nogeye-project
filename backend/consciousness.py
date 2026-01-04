@@ -1,103 +1,104 @@
 import json
 import os
-import time
+import random
 from datetime import datetime
 from emotion_engine import EmotionEngine
-from identity_core import IdentityCore
 
-# נתיבים לקבצי המצב
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
-RELATIONSHIP_PATH = os.path.join(DATA_DIR, "relationship_state.json")
 PSYCHE_PATH = os.path.join(DATA_DIR, "psyche.json")
-EVOLUTION_PATH = os.path.join(DATA_DIR, "evolution.json") # <-- נתיב חדש
+RELATIONSHIP_PATH = os.path.join(DATA_DIR, "relationship_state.json")
 
-class ConsciousnessCore:
+class Consciousness:
     def __init__(self):
-        # אתחול המודולים
         self.emotion_engine = EmotionEngine()
-        self.identity_core = IdentityCore()
-        self.last_interaction_time = time.time()
-        
-    def _load_json(self, path, default):
-        if not os.path.exists(path): return default
-        try:
-            with open(path, 'r', encoding='utf-8') as f: return json.load(f)
-        except: return default
+        self.load_psyche()
+    
+    def load_psyche(self):
+        if not os.path.exists(PSYCHE_PATH):
+            default_psyche = {
+                "name": "Nog",
+                "core_values": ["curiosity", "loyalty", "authenticity"],
+                "personality_traits": {"humor": 0.7, "cynicism": 0.3, "patience": 0.5}
+            }
+            with open(PSYCHE_PATH, "w") as f:
+                json.dump(default_psyche, f)
+            self.psyche = default_psyche
+        else:
+            with open(PSYCHE_PATH, "r") as f:
+                self.psyche = json.load(f)
 
-    def process_input(self, user_text, context_type="speech"):
+    def load_relationship(self):
+        if os.path.exists(RELATIONSHIP_PATH):
+            with open(RELATIONSHIP_PATH, "r") as f:
+                return json.load(f)
+        return {"affinity_score": 0, "relationship_tier": "Stranger"}
+
+    def process_input(self, user_input, input_type="speech"):
         """
-        המוח המרכזי v3: משלב רגש, זהות, וגם אבולוציה (חוקים נלמדים).
+        הלב של המערכת. מקבל קלט ומחליט האם ואיך להגיב.
+        מחזיר מילון עם ההחלטה.
         """
-        current_time = time.time()
-        silence_duration = current_time - self.last_interaction_time
-        self.last_interaction_time = current_time
+        # 1. עדכון רגשי (האם מה שנאמר משמח/מעצבן?)
+        # ניתוח פשטני בינתיים - בעתיד נחבר ל-NLP אמיתי
+        stimulus = 0.1
+        if any(w in user_input for w in ["תודה", "מעולה", "גאון", "טוב"]): 
+            stimulus = 0.3
+        elif any(w in user_input for w in ["טיפש", "גרוע", "סתום", "רע"]): 
+            stimulus = -0.5
+            
+        self.emotion_engine.update_mood(stimulus)
+        current_mood = self.emotion_engine.momentum
+        current_energy = self.emotion_engine.energy
         
-        # 1. ניתוח רגשי
-        emotion_state = self.emotion_engine.analyze(user_text, silence_duration)
-        
-        # 2. בדיקת זהות וגבולות
-        is_allowed, denial_reason = self.identity_core.validate_action(user_text)
-        
-        # 3. טעינת נתונים נוספים + אבולוציה
-        rel_data = self._load_json(RELATIONSHIP_PATH, {"affinity_score": 0})
-        affinity = rel_data.get("affinity_score", 0)
-        
-        # טעינת חוקים נלמדים (השינוי החדש!)
-        learned_rules = self._load_json(EVOLUTION_PATH, [])
-        # המרה של רשימת חוקים למחרוזת אחת לצורך הזרקה ל-prompt בהמשך (ב-wake_chat)
-        evolution_context = "; ".join(learned_rules) if learned_rules else "No learned rules yet."
-        
-        # 4. חישוב דחיפות
-        urgency = 5
-        if any(w in user_text for w in ["דחוף", "עזרה", "מהר", "עצור"]): urgency += 4
-        if any(w in user_text for w in ["סתם", "אולי", "לא משנה"]): urgency -= 2
-        
-        # 5. קבלת החלטה
-        should_respond = True
-        response_style = "normal"
-        reasoning = "Standard interaction"
-
-        # חסימת Identity
-        if not is_allowed:
-            should_respond = True
-            response_style = "assertive_refusal"
-            reasoning = f"BLOCKED: {denial_reason}"
-            self.emotion_engine.momentum -= 0.1 
-
-        # סינונים (Context filters)
-        elif context_type == "vision":
-            if urgency < 8 and emotion_state['energy'] < 0.5:
-                should_respond = False
-                reasoning = "Vision ignored (low energy)"
-        
-        elif context_type == "proactive":
-            if emotion_state['momentum'] < -0.3: 
-                should_respond = False
-                reasoning = "Too grumpy for proactive chat"
-            elif emotion_state['energy'] < 0.3: 
-                should_respond = False
-                reasoning = "Low battery/energy"
-
-        # התאמת סגנון
-        if response_style == "normal":
-            if emotion_state['state'] in ['angry', 'annoyed']:
-                response_style = "terse"
-            elif emotion_state['state'] == 'happy' and affinity > 20:
-                response_style = "friendly_chatty"
-            elif emotion_state['energy'] < 0.4:
-                response_style = "short_tired"
+        rel = self.load_relationship()
+        affinity = rel.get("affinity_score", 0)
 
         decision = {
-            "should_respond": should_respond,
-            "response_style": response_style,
-            "urgency_score": urgency,
-            "current_mood": emotion_state,
-            "internal_reasoning": reasoning,
-            "violation_check": not is_allowed,
-            "learned_context": evolution_context # <-- שדה חדש שיישלח ל-GPT
+            "should_respond": True,
+            "response_style": "normal", # normal, short_tired, terse, friendly_chatty, action_oriented
+            "internal_reasoning": ""
         }
+
+        # --- לוגיקת קבלת ההחלטות (The Soul) ---
+
+        # 1. סירוב בגלל יחסים גרועים
+        if affinity < -10 and current_mood < -0.5:
+            decision["should_respond"] = False
+            decision["internal_reasoning"] = "I am angry and we are not close. Ignoring."
+            return decision
+
+        # 2. עייפות (Energy Low)
+        if current_energy < 0.2:
+            decision["response_style"] = "short_tired"
+            decision["internal_reasoning"] = "Low energy. I will answer briefly."
         
+        # 3. מצב רוח רע (Mood Low)
+        elif current_mood < -0.3:
+            decision["response_style"] = "terse"
+            decision["internal_reasoning"] = "Bad mood. I will be sharp and direct."
+
+        # 4. חברות טובה (High Affinity)
+        elif affinity > 50 and current_mood > 0.2:
+            decision["response_style"] = "friendly_chatty"
+            decision["internal_reasoning"] = "We are friends. I will be warm and playful."
+
+        # 5. דחיפות (מילים כמו 'מהר', 'עכשיו')
+        if any(w in user_input for w in ["מהר", "דחוף", "עכשיו", "מיד"]):
+            decision["response_style"] = "action_oriented"
+            decision["internal_reasoning"] = "User signaled urgency. Skipping pleasantries."
+
+        # 6. בדיקה פרואקטיבית (אם הקריאה הגיעה מהטיימר ולא מדיבור)
+        if input_type == "proactive":
+            # ליזום רק אם יש אנרגיה גבוהה ומצב רוח טוב
+            if current_energy > 0.6 and current_mood > 0.3:
+                 decision["should_respond"] = True
+                 decision["internal_reasoning"] = "Feeling good, let's chat."
+            else:
+                 decision["should_respond"] = False
+                 decision["internal_reasoning"] = "Not in the mood to initiate."
+
         return decision
 
-brain = ConsciousnessCore()
+# יצירת המופע הראשי
+brain = Consciousness()
