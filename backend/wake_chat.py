@@ -359,7 +359,50 @@ def startup_greeting():
         update_ui("מדבר", "", greeting)
         speak(greeting)
 
-# --- פונקציית השיחה הראשית (הגרסה החכמה) ---
+def generate_deep_thought(user_text, ai_response):
+    """
+    מייצרת מחשבה אנליטית עמוקה על האינטראקציה האחרונה.
+    """
+    try:
+        psyche = load_psyche()
+        mood = get_mood()
+        
+        prompt = f"""
+        ANALYSIS MODE.
+        My Identity: {json.dumps(psyche)}
+        Current Mood: {mood.get('current_mood')}
+        
+        INTERACTION:
+        User: "{user_text}"
+        Me: "{ai_response}"
+        
+        MISSION: Write 1 short sentence of internal monologue.
+        DO NOT summarize what was said.
+        INSTEAD: Analyze the user's hidden emotion, intent, or plan my next strategy.
+        
+        Examples:
+        - "He seems distracted; I should keep my answers brief."
+        - "He is testing my patience. I must remain calm but firm."
+        - "Great connection today. I can afford to be more playful."
+        
+        Output (Hebrew/English):
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-4o", 
+            messages=[{"role": "system", "content": prompt}],
+            max_tokens=60
+        )
+        thought = response.choices[0].message.content.strip()
+        
+        # שמירת המחשבה החכמה
+        update_internal_monologue(thought)
+        return thought
+    except Exception as e:
+        print(f"Thought Error: {e}")
+        return None
+        
+# --- פונקציית השיחה הראשית (הגרסה החכמה והמתוקנת) ---
 def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None, decision_data=None):
     global last_interaction_time
     last_interaction_time = time.time()
@@ -394,12 +437,18 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     # חילוץ חוקים נלמדים מהמוח
     learned_rules_text = decision_data.get('learned_context', 'None') if decision_data else 'None'
 
+    # --- התיקון הקריטי: הגדרת המשתנה כאן, לפני השימוש בו ---
     system_content = f"""
     IDENTITY: {json.dumps(psyche_profile)}
     RELATIONSHIP: {rel['relationship_tier']}
     LEARNED RULES (EVOLUTION): {learned_rules_text}
     
     BRAIN DIRECTIVE: {brain_instruction}
+    
+    *** IMPORTANT: YOU HAVE REAL-TIME INTERNET ACCESS ***
+    If the user asks for prices (Bitcoin, stocks), news, or real-time facts:
+    You MUST output the command: SEARCH_CMD: query
+    Do NOT say "I cannot browse". You CAN via this command.
     
     CONTEXT:
     Time: {current_time}
@@ -460,15 +509,20 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
             
             # אם זו לא פקודה (cmd_result הוא None)
             if not cmd_result:
-                # בדיקה כפולה רק ליתר ביטחון (למנוע הקראת פקודות שלא זוהו)
+                # בדיקה כפולה רק ליתר ביטחון
                 if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
                     spoken_response += line + " "
 
         if spoken_response.strip():
-            update_internal_monologue(f"אמרתי למאור: {spoken_response[:50]}...")
+            # 1. עדכון ממשק מהיר
             update_ui("מדבר", prompt, spoken_response)
+            
+            # 2. התחלת דיבור (כדי לא לעכב את התשובה)
             speak(spoken_response)
             print(f"Nog: {spoken_response}")
+
+            # 3. הפעלת המחשבה העמוקה (במקביל או מיד אחרי)
+            threading.Thread(target=generate_deep_thought, args=(prompt, spoken_response)).start()
             
         memory["conversations"].append({"role": "user", "content": final_prompt})
         memory["conversations"].append({"role": "assistant", "content": answer})
@@ -549,29 +603,31 @@ def proactive_check_loop():
                     update_internal_monologue(thought)
                 except: pass
 
+# --- לולאת ההקשבה (מתוקנת - כוללת Barge-in) ---
 def listen_loop():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
+    
+    # כיול רעשים ראשוני
     with mic as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
+        
     update_ui("מוכנה")
     print("\n🎤 --- Nog Connected to Brain (V5 + Tools Refactor) ---")
     
-    # עכשיו הפונקציה מוגדרת ולא תהיה שגיאה
     threading.Thread(target=startup_greeting).start()
     threading.Thread(target=proactive_check_loop, daemon=True).start()
     threading.Thread(target=subconscious_loop, daemon=True).start()
 
     while True:
-        # בדיקה האם מותר להקשיב (מכונת מצבים)
-        if not state_machine.should_listen():
-            time.sleep(0.1)
-            continue
-
+        # כאן הסרנו את הבדיקה if not state_machine.should_listen()
+        # כדי לאפשר לו להקשיב גם כשהוא מדבר (עבור פקודות עצירה)
+        
         try:
             with mic as source:
                 try:
-                    audio = recognizer.listen(source, timeout=0.8, phrase_time_limit=8)
+                    # האזנה קצרה כדי לתפוס פקודות עצירה מהר
+                    audio = recognizer.listen(source, timeout=0.8, phrase_time_limit=5)
                 except sr.WaitTimeoutError:
                     continue 
                 try:
@@ -580,16 +636,21 @@ def listen_loop():
                     continue
 
                 if text:
-                    if any(w in text for w in ["עצור", "שתוק", "חלאס", "stop"]):
-                        global stop_flag
-                        if is_speaking:
+                    # --- מנגנון קטיעה (Barge-in) ---
+                    # אם הוא מדבר ואמרת מילת עצירה -> תעצור אותו
+                    if is_speaking:
+                        if any(w in text for w in ["עצור", "שתוק", "חלאס", "stop", "מספיק", "רגע"]):
+                            print("🛑 פקודת עצירה זוהתה! משתיק...")
+                            global stop_flag
                             stop_flag = True
-                            print("🛑 קטיעת דיבור זוהתה.")
+                            pygame.mixer.music.stop() # עצירה מיידית
+                            update_ui("הושתק")
+                            continue
+                        else:
+                            # אם הוא מדבר ואמרת סתם משהו -> תתעלם
                             continue
 
-                    if is_speaking:
-                        continue
-
+                    # --- אם הוא לא מדבר -> תהליך רגיל ---
                     print(f"👂 רקע: {text}")
                     ambient_buffer.append(f"[{datetime.now().strftime('%H:%M')}] {text}")
                     update_ui("מאזין", text)
@@ -615,7 +676,6 @@ def listen_loop():
                                 speak("מסתכל על המסך...")
                                 img = capture_screen()
                         
-                        # --- התייעצות עם המוח המרכזי לפני תגובה ---
                         decision = brain.process_input(query, "speech")
                         
                         if decision["should_respond"]:

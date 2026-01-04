@@ -1,0 +1,3 @@
+git add .
+git commit -m "Major Update: Fixed vision, Added barge-in speech, integrated Smart Search (Yahoo/Google), and cleaned up Frontend."
+git push

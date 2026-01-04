@@ -5,25 +5,61 @@ import time
 import pyautogui
 import pyperclip
 import requests
+import json
+from datetime import datetime
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
-from dotenv import load_dotenv  # <-- הוספה קריטית
+from dotenv import load_dotenv
 from memory_engine import save_memory, save_episode
 
-# --- טעינת הגדרות (חובה לפני חיבור ל-OpenAI) ---
+# --- ייבוא מותנה למנועי חיפוש ופיננסים (מונע קריסה אם חסר) ---
+try:
+    from googlesearch import search
+except ImportError:
+    search = None
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
+
+# --- טעינת הגדרות ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 load_dotenv(ENV_PATH)
 
-# הגדרות לקוח OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
+
+# --- פונקציית עזר לעדכון ה-Frontend (הבועות הסגולות) ---
+def broadcast_tool_activity(message):
+    try:
+        # איתור הנתיב לקובץ ה-JSON של הממשק
+        live_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "live.json")
+        
+        current_data = {}
+        # קריאה זהירה של מה שכבר יש שם
+        if os.path.exists(live_json_path):
+            with open(live_json_path, "r", encoding="utf-8") as f:
+                try:
+                    current_data = json.load(f)
+                except: pass
+        
+        # עדכון הסטטוס בלבד
+        current_data["status"] = message
+        
+        # שמירה חזרה
+        with open(live_json_path, "w", encoding="utf-8") as f:
+            json.dump(current_data, f, ensure_ascii=False, indent=2)
+            
+    except Exception as e:
+        print(f"Broadcast Error: {e}")
 
 class ToolsEngine:
     """
     מנהל את כל הכלים והיכולות הטכניות של Nog.
+    כולל: חיפוש חכם (פיננסי + גוגל), שליטה במחשב, וואטסאפ ויוטיוב.
     """
     
     def handle_command(self, command_line):
@@ -34,7 +70,13 @@ class ToolsEngine:
         if not command_line: return None
         
         try:
-            if command_line.startswith("WEBSITE:"):
+            # --- חיפוש חכם (השינוי הגדול) ---
+            if command_line.startswith("SEARCH_CMD:"):
+                query = command_line.replace("SEARCH_CMD:", "").strip()
+                return self.search_smart(query)
+
+            # --- שאר הפקודות המקוריות שלך ---
+            elif command_line.startswith("WEBSITE:"):
                 url = command_line.replace("WEBSITE:", "").strip()
                 webbrowser.open(url)
                 return "פתחתי את האתר."
@@ -84,10 +126,6 @@ class ToolsEngine:
                 path = command_line.replace("SET_WALLPAPER:", "").strip()
                 return self._set_wallpaper(path)
                 
-            elif command_line.startswith("SEARCH_CMD:"):
-                query = command_line.replace("SEARCH_CMD:", "").strip()
-                return self.search_web(query)
-                
             elif command_line.startswith("WATCH_VIDEO:"):
                 url = command_line.replace("WATCH_VIDEO:", "").strip()
                 return self._get_youtube_transcript(url)
@@ -96,7 +134,6 @@ class ToolsEngine:
                 url = command_line.replace("READ_URL:", "").strip()
                 return self._read_url_content(url)
 
-            # --- פונקציות קריטיות ---
             elif command_line.startswith("ADD_EVENT:"):
                 parts = command_line.replace("ADD_EVENT:", "").split("|||", 1)
                 if len(parts) == 2:
@@ -117,18 +154,79 @@ class ToolsEngine:
             
         return None
 
-    # --- מימושים ---
+    # --- חיפוש חכם: קריפטו/מניות דרך Yahoo, כל השאר דרך Google ---
+    def search_smart(self, query):
+        broadcast_tool_activity(f"בודק מידע על: {query}...")
+        
+        # 1. בדיקה אם זה עניין כספי (ביטקוין, מניות)
+        query_lower = query.lower()
+        finance_keywords = ["bitcoin", "btc", "price", "stock", "מחיר", "ביטקוין", "מניה", "שער", "ethereum", "eth"]
+        
+        if yf and any(w in query_lower for w in finance_keywords):
+            print(f"📈 Yahoo Finance Check: {query}")
+            try:
+                symbol = None
+                if "bitcoin" in query_lower or "btc" in query_lower or "ביטקוין" in query_lower:
+                    symbol = "BTC-USD"
+                elif "ethereum" in query_lower or "eth" in query_lower:
+                    symbol = "ETH-USD"
+                elif "apple" in query_lower:
+                    symbol = "AAPL"
+                elif "google" in query_lower:
+                    symbol = "GOOGL"
+                elif "tesla" in query_lower:
+                    symbol = "TSLA"
+                elif "microsoft" in query_lower:
+                    symbol = "MSFT"
+                elif "nvidia" in query_lower:
+                    symbol = "NVDA"
+                
+                if symbol:
+                    broadcast_tool_activity(f"מושך נתונים פיננסיים: {symbol}")
+                    ticker = yf.Ticker(symbol)
+                    # משיכת מחיר בזמן אמת (או סגירה אחרונה)
+                    data = ticker.history(period="1d")
+                    if not data.empty:
+                        last_price = data['Close'].iloc[-1]
+                        return f"המחיר הנוכחי של {symbol} הוא ${last_price:,.2f}."
+            except Exception as e:
+                print(f"Finance Error: {e}")
+                # אם נכשל ב-Yahoo, ממשיכים לגוגל כרגיל
+
+        # 2. חיפוש בגוגל (ברירת מחדל לכל השאר)
+        return self.search_web(query)
 
     def search_web(self, query):
-        """פונקציה פומבית לחיפוש"""
+        """פונקציה פומבית לחיפוש (מנוע Google)"""
         try:
+            broadcast_tool_activity(f"מחפש בגוגל: {query}")
+            print(f"🔎 Google Search: {query}")
+            
+            if not search:
+                return "מנוע החיפוש (googlesearch) לא מותקן."
+            
             results_text = ""
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, region='wt-wt', max_results=2))
-                for i, r in enumerate(results):
-                    results_text += f"\nמקור {i+1}: {r['title']} - {r['body']}"
-            return results_text if results_text else "לא מצאתי מידע."
-        except: return "תקלת רשת."
+            # advanced=True נותן לנו גם כותרת ותיאור
+            count = 0
+            for result in search(query, num_results=3, advanced=True):
+                title = result.title
+                desc = result.description
+                url = result.url
+                results_text += f"\nתוצאה {count+1}: {title}\n{desc}\n({url})\n"
+                count += 1
+            
+            if not results_text:
+                # ניסיון גיבוי לחיפוש רגיל (רק לינקים) אם ה-advanced נכשל
+                for url in search(query, num_results=3):
+                    results_text += f"- {url}\n"
+            
+            return results_text if results_text else "לא נמצאו תוצאות בגוגל."
+
+        except Exception as e:
+            print(f"❌ Google Error: {e}")
+            return f"שגיאה בחיפוש: {str(e)}"
+
+    # --- שאר המימושים (ללא שינוי מהקוד המקורי שלך) ---
 
     def add_calendar_event(self, title, date_time_str):
         print(f"📅 קובע פגישה: {title} ב-{date_time_str}")
@@ -149,6 +247,7 @@ class ToolsEngine:
         max_steps = 5 
         
         for i in range(max_steps):
+            broadcast_tool_activity(f"סוכן אוטונומי: שלב {i+1}")
             agent_prompt = f"""You are in AGENT MODE. Goal: {goal}. History: {history}.
             Return ONLY one command: SEARCH_CMD, READ_URL, WATCH_VIDEO, CREATE_FILE, FIND, ADD_EVENT, DONE: result"""
             
@@ -170,6 +269,7 @@ class ToolsEngine:
         return "הגעתי למקסימום צעדים. " + str(history)
 
     def _read_url_content(self, url):
+        broadcast_tool_activity("קורא תוכן דף אינטרנט...")
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers, timeout=10)
@@ -183,6 +283,7 @@ class ToolsEngine:
         except Exception as e: return f"שגיאה בקריאה: {e}"
 
     def _get_youtube_transcript(self, video_url):
+        broadcast_tool_activity("מוריד תמלול וידאו...")
         try:
             if "v=" in video_url: video_id = video_url.split("v=")[1].split("&")[0]
             elif "youtu.be/" in video_url: video_id = video_url.split("/")[-1]
@@ -234,6 +335,7 @@ class ToolsEngine:
         except: return "שגיאה ביצירת קובץ."
 
     def _generate_image(self, prompt):
+        broadcast_tool_activity(f"מייצר תמונה: {prompt}")
         try:
             response = client.images.generate(model="dall-e-3", prompt=prompt, size="1024x1024", quality="standard", n=1)
             image_url = response.data[0].url
@@ -253,6 +355,7 @@ class ToolsEngine:
         except: return "תקלה בהחלפת טפט."
 
     def _send_whatsapp(self, contact_name, message):
+        broadcast_tool_activity(f"שולח וואטסאפ ל-{contact_name}")
         subprocess.run(["open", "-a", "WhatsApp"])
         time.sleep(1.5)
         pyautogui.hotkey('command', 'f')
