@@ -12,17 +12,24 @@ import warnings
 import pyautogui
 import base64
 import cv2
-import subprocess  # חובה עבור יומן
-import pyperclip   # חובה עבור העתקה
+import subprocess
+import pyperclip
 from datetime import datetime, timedelta
 from collections import deque
 from io import BytesIO
 from dotenv import load_dotenv
-from google.cloud import texttospeech
 from openai import OpenAI
 
-# --- ייבוא המוח, הזיכרון והכלים החדשים ---
-# הוספנו כאן את consolidate_memory
+# --- ייבוא Azure Speech (קול עברית מושלם) ---
+try:
+    import azure.cognitiveservices.speech as speechsdk
+    AZURE_AVAILABLE = True
+except ImportError:
+    AZURE_AVAILABLE = False
+    print("⚠️  Azure Speech לא מותקן - משתמש ב-Google TTS")
+    from google.cloud import texttospeech
+
+# --- ייבוא המוח, הזיכרון והכלים ---
 from memory_engine import save_memory, retrieve_memory, save_episode, consolidate_memory
 from consciousness import brain
 from conversation_state import state_machine, State
@@ -37,7 +44,20 @@ ENV_PATH = os.path.join(BASE_DIR, ".env")
 load_dotenv(ENV_PATH)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(BASE_DIR, "chat-voice-key.json")
+
+# --- אתחול Azure Speech או Google ---
+if AZURE_AVAILABLE:
+    azure_speech_key = os.getenv("AZURE_SPEECH_KEY")
+    azure_region = os.getenv("AZURE_SPEECH_REGION")
+    speech_config = speechsdk.SpeechConfig(subscription=azure_speech_key, region=azure_region)
+    speech_config.speech_synthesis_voice_name = "he-IL-AvriNeural"  # קול גברי ישראלי
+    speech_config.set_speech_synthesis_output_format(speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3)
+    print("🎤 Azure Speech Engine: ACTIVE (Avri - Israeli Male Voice)")
+else:
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(BASE_DIR, "chat-voice-key.json")
+    tts_client = texttospeech.TextToSpeechClient()
+    voice_id = "he-IL-Wavenet-D"
+    print("🎤 Google TTS: ACTIVE (fallback)")
 
 # --- מנגנוני הגנה ויציבות ---
 file_lock = threading.Lock() 
@@ -54,9 +74,6 @@ is_dreaming = False
 
 # Cache ליומן
 calendar_cache = {"data": "לא נבדק", "timestamp": 0}
-
-tts_client = texttospeech.TextToSpeechClient()
-voice_id = "he-IL-Wavenet-D" 
 
 # נתיבים
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
@@ -94,7 +111,7 @@ def safe_write_json(path, data):
         except:
             pass
 
-# --- UI וסאונד ---
+# --- UI ---
 def update_ui(status, user_text="", chat_text=""):
     try:
         data = {"status": status, "user": user_text, "chat": chat_text}
@@ -118,7 +135,6 @@ def play_audio_thread():
         is_speaking = False
         stop_flag = False
         
-        # עדכון מצב: סיימנו לדבר
         if state_machine.interaction_count > 0:
              state_machine.set_state(State.DEEP_CONVERSATION)
         else:
@@ -129,10 +145,37 @@ def play_audio_thread():
         is_speaking = False
         state_machine.set_state(State.IDLE)
 
+# ═══════════════════════════════════════════════════════════
+# 🎤 מנוע TTS משודרג - Azure (קול עברית מושלם)
+# ═══════════════════════════════════════════════════════════
+
+def clean_text_for_tts(text):
+    """
+    מנקה טקסט לפני TTS:
+    1. מסיר תווים מיוחדים של XML
+    2. מנקה שורות ריקות
+    3. מסיר רווחים מיותרים
+    """
+    import html
+    
+    # ניקוי בסיסי
+    text = text.strip()
+    
+    # Escape תווי XML מיוחדים
+    text = html.escape(text)
+    
+    # מסיר שורות ריקות מרובות
+    text = ' '.join(text.split())
+    
+    # מגביל אורך (Azure מקסימום 3000 תווים)
+    if len(text) > 3000:
+        text = text[:3000]
+    
+    return text
+
 def speak(text):
     global is_speaking, stop_flag
     
-    # עדכון מצב: מדבר
     state_machine.set_state(State.SPEAKING)
     
     if is_speaking:
@@ -143,32 +186,91 @@ def speak(text):
         return
 
     try:
-        # --- שדרוג: התאמת הקול לרגש (SSML) ---
+        # ניקוי הטקסט לפני TTS
+        clean_text = clean_text_for_tts(text)
+        
+        print(f"🗣️ Speaking: {clean_text[:50]}...")  # הדפסת התחלת הטקסט לדיבאג
+        
         current_mood = brain.emotion_engine.momentum 
         current_energy = brain.emotion_engine.energy 
         
-        speaking_rate = 1.0
-        
-        if current_mood < -0.4: speaking_rate = 1.2  # עצבני = מהר
-        elif current_energy < 0.4: speaking_rate = 0.9 # עייף = לאט
-        elif current_mood > 0.6: speaking_rate = 1.1 # שמח = קצת מהר
-
-        ssml_text = f"""
-        <speak>
-            <prosody rate="{speaking_rate}">
-                {text}
-            </prosody>
-        </speak>
-        """
-
-        synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
-        voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_id)
-        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
-        response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
-        
-        with open(OUTPUT_AUDIO, "wb") as out:
-            out.write(response.audio_content)
+        # --- Azure Speech: קול עברי אמיתי עם רגש ---
+        if AZURE_AVAILABLE:
+            # התאמת הקול לפי רגש
+            rate = "0%"  # ברירת מחדל (מהירות רגילה)
+            pitch = "0%"  # ברירת מחדל (גובה רגיל)
             
+            if current_mood < -0.4:  # עצבני
+                rate = "+10%"  # מהר יותר
+                pitch = "-5%"  # נמוך יותר (רציני)
+            elif current_energy < 0.4:  # עייף
+                rate = "-10%"  # לאט יותר
+                pitch = "-3%"  # קצת נמוך
+            elif current_mood > 0.6:  # שמח
+                rate = "+5%"  # קצת מהר
+                pitch = "+5%"  # גבוה יותר (שמח)
+            
+            # SSML עם רגש (עכשיו עם טקסט מנוקה!)
+            ssml = f"""
+            <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='he-IL'>
+                <voice name='he-IL-AvriNeural'>
+                    <prosody rate='{rate}' pitch='{pitch}'>
+                        {clean_text}
+                    </prosody>
+                </voice>
+            </speak>
+            """
+            
+            # הגדרת פורמט אודיו
+            audio_config = speechsdk.audio.AudioOutputConfig(filename=OUTPUT_AUDIO)
+            
+            # יצירת synthesizer
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=speech_config,
+                audio_config=audio_config
+            )
+            
+            # סינתוז הדיבור
+            result = synthesizer.speak_ssml_async(ssml).get()
+            
+            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                # הצלחה - נגן את הקול
+                pass
+            else:
+                print(f"Azure TTS Error: {result.reason}")
+                if result.reason == speechsdk.ResultReason.Canceled:
+                    cancellation = result.cancellation_details
+                    print(f"Error details: {cancellation.error_details}")
+                state_machine.set_state(State.IDLE)
+                return
+        
+        # --- Google TTS: גיבוי ---
+        else:
+            speaking_rate = 1.0
+            if current_mood < -0.4: 
+                speaking_rate = 1.2
+            elif current_energy < 0.4: 
+                speaking_rate = 0.9
+            elif current_mood > 0.6: 
+                speaking_rate = 1.1
+
+            ssml_text = f"""
+            <speak>
+                <prosody rate="{speaking_rate}">
+                    {text}
+                </prosody>
+            </speak>
+            """
+
+            synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
+            voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_id)
+            audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+            response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+            
+            with open(OUTPUT_AUDIO, "wb") as out:
+                out.write(response.audio_content)
+        
+        # נגן את הקול
         threading.Thread(target=play_audio_thread).start()
         
     except Exception as e:
@@ -311,7 +413,7 @@ def perform_self_reflection(auto_mode=False):
     except:
         return "נכשלתי."
 
-# --- מנגנון החלימה (כולל ניקוי זיכרון) ---
+# --- מנגנון החלימה ---
 def subconscious_loop():
     global last_interaction_time, is_dreaming
     print("💤 מנגנון תת-מודע הופעל...")
@@ -324,7 +426,6 @@ def subconscious_loop():
             is_dreaming = True
             print("🌙 נכנס למצב חלימה...")
             
-            # כאן מתבצע הניקיון של הזיכרון
             try:
                 consolidate_memory()
             except Exception as e:
@@ -346,9 +447,8 @@ def ask_gpt(messages):
 def startup_greeting():
     print("🌅 מכין תדרוך בוקר...")
     
-    # ניסיון חיפוש שקט
     try:
-        weather_info = tools.search_web("weather Dallas")
+        weather_info = tools.search_web_ddg("weather Dallas")
     except:
         weather_info = "לא זמין"
 
@@ -369,9 +469,7 @@ def startup_greeting():
         speak(greeting)
 
 def generate_deep_thought(user_text, ai_response):
-    """
-    מייצרת מחשבה אנליטית עמוקה על האינטראקציה האחרונה.
-    """
+    """מייצרת מחשבה אנליטית עמוקה"""
     try:
         psyche = load_psyche()
         mood = get_mood()
@@ -398,21 +496,18 @@ def generate_deep_thought(user_text, ai_response):
             max_tokens=60
         )
         thought = response.choices[0].message.content.strip()
-        
-        # שמירת המחשבה החכמה
         update_internal_monologue(thought)
         return thought
     except Exception as e:
         print(f"Thought Error: {e}")
         return None
-        
-# --- פונקציית השיחה הראשית (הגרסה החכמה והמתוקנת) ---
+
+# --- פונקציית השיחה הראשית ---
 def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None, decision_data=None):
     global last_interaction_time
     last_interaction_time = time.time()
     update_relationship(impact=0.5)
     
-    # עדכון מצב: חושב
     state_machine.set_state(State.THINKING)
     state_machine.increment_interaction() 
 
@@ -425,20 +520,22 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     psyche_profile = safe_read_json(PSYCHE_PATH, {})
     rel = safe_read_json(RELATIONSHIP_PATH, {"affinity_score": 0, "relationship_tier": "Stranger"})
     
-    # --- הזרקת החלטות המוח לפרומפט ---
     brain_instruction = ""
     if decision_data:
         style = decision_data.get('response_style', 'normal')
         
-        if style == 'short_tired': brain_instruction = "STATUS: Low energy. Be very brief, almost tired. Don't elaborate."
-        elif style == 'terse': brain_instruction = "STATUS: Annoyed. Be sharp, short, and to the point. No politeness."
-        elif style == 'action_oriented': brain_instruction = "STATUS: HIGH URGENCY. Skip all pleasantries. Execute commands immediately."
-        elif style == 'friendly_chatty': brain_instruction = "STATUS: High Affinity. Be warm, funny, use slang, be a 'bro'."
+        if style == 'short_tired': 
+            brain_instruction = "STATUS: Low energy. Be very brief, almost tired. Don't elaborate."
+        elif style == 'terse': 
+            brain_instruction = "STATUS: Annoyed. Be sharp, short, and to the point. No politeness."
+        elif style == 'action_oriented': 
+            brain_instruction = "STATUS: HIGH URGENCY. Skip all pleasantries. Execute commands immediately."
+        elif style == 'friendly_chatty': 
+            brain_instruction = "STATUS: High Affinity. Be warm, funny, use slang, be a 'bro'."
     
     current_time = datetime.now().strftime("%H:%M")
     recent_context = "\n".join(list(ambient_buffer))
 
-    # חילוץ חוקים נלמדים מהמוח
     learned_rules_text = decision_data.get('learned_context', 'None') if decision_data else 'None'
 
     system_content = f"""
@@ -471,8 +568,6 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     """
     
     messages = [{"role": "system", "content": system_content}]
-    
-    # --- השינוי הקריטי: 50 הודעות אחרונות לזיכרון עבודה ---
     messages.extend(memory.get("conversations", [])[-50:])
     
     final_prompt = prompt
@@ -487,7 +582,6 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
         
     messages.append({"role": "user", "content": content_payload})
 
-    # --- Agent Loop ---
     turns = 0
     max_turns = 3
     
@@ -503,30 +597,23 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
         
         for line in lines:
             line = line.strip()
-            if not line: continue
+            if not line: 
+                continue
             
-            # --- שימוש ב-tools engine החדש ---
             cmd_result = tools.handle_command(line)
             
             if cmd_result:
                 tool_output = cmd_result
                 update_ui("פעולה", prompt, f"מבצע: {line}")
             
-            # אם זו לא פקודה (cmd_result הוא None)
             if not cmd_result:
-                # בדיקה כפולה רק ליתר ביטחון
                 if not any(line.startswith(cmd) for cmd in ["APP:", "WEBSITE:", "TYPE:", "REMEMBER:", "WHATSAPP:", "SYSTEM:", "CLOSE:", "CREATE_FILE:", "SET_WALLPAPER:", "ADD_EVENT:", "SAVE_EPISODE:", "SEARCH_CMD:", "WATCH_VIDEO:", "READ_URL:", "AGENT_MODE:", "EVOLVE", "GENERATE_IMAGE:", "FIND:"]):
                     spoken_response += line + " "
 
         if spoken_response.strip():
-            # 1. עדכון ממשק מהיר
             update_ui("מדבר", prompt, spoken_response)
-            
-            # 2. התחלת דיבור
             speak(spoken_response)
             print(f"Nog: {spoken_response}")
-
-            # 3. מחשבה עמוקה
             threading.Thread(target=generate_deep_thought, args=(prompt, spoken_response)).start()
             
         memory["conversations"].append({"role": "user", "content": final_prompt})
@@ -542,7 +629,7 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
             break
 
 def proactive_check_loop():
-    print("💓 דופק מודעות הופעל (כולל ראייה פסיבית)...")
+    print("💓 דופק מודעות הופעל...")
     
     last_vision_time = 0
     vision_interval = 1800
@@ -550,16 +637,15 @@ def proactive_check_loop():
 
     while True:
         time.sleep(60) 
-        if is_speaking: continue
+        if is_speaking: 
+            continue
         
-        # מצב לילה
         current_hour = datetime.now().hour
         if 23 <= current_hour or current_hour < 7:
             continue
 
         current_time = time.time()
         
-        # שלב 1: ראייה פסיבית
         if current_time - last_vision_time > vision_interval:
             print("👁️ מבצע סריקה ויזואלית שקטה...")
             img_data = capture_webcam()
@@ -584,7 +670,6 @@ def proactive_check_loop():
                 except Exception as e:
                     print(f"Vision Error: {e}")
 
-        # שלב 2: מחשבה ויוזמה
         if current_time % check_interval < 60: 
             decision = brain.process_input("Proactive check", "proactive")
             
@@ -604,9 +689,10 @@ def proactive_check_loop():
                     res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": thought_prompt}])
                     thought = res.choices[0].message.content.strip()
                     update_internal_monologue(thought)
-                except: pass
+                except: 
+                    pass
 
-# --- לולאת ההקשבה (מתוקנת - כוללת Barge-in) ---
+# --- לולאת ההקשבה ---
 def listen_loop():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
@@ -615,7 +701,7 @@ def listen_loop():
         recognizer.adjust_for_ambient_noise(source, duration=1)
         
     update_ui("מוכנה")
-    print("\n🎤 --- Nog Connected to Brain (Memory: 50 + Consolidation) ---")
+    print("\n🎤 --- Nog Connected to Brain (Azure Hebrew Voice Ready) ---")
     
     threading.Thread(target=startup_greeting).start()
     threading.Thread(target=proactive_check_loop, daemon=True).start()
@@ -634,7 +720,6 @@ def listen_loop():
                     continue
 
                 if text:
-                    # מנגנון קטיעה (Barge-in)
                     if is_speaking:
                         if any(w in text for w in ["עצור", "שתוק", "חלאס", "stop", "מספיק", "רגע"]):
                             print("🛑 פקודת עצירה זוהתה! משתיק...")

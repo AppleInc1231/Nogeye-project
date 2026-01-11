@@ -1,4 +1,4 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 import json
 
 print("🚀 מתחיל בדיקת חיפוש...")
@@ -13,8 +13,7 @@ try:
             for r in results:
                 print(f"- {r['title']}: {r['body'][:50]}...")
         else:
-            print("wm ❌ החיפוש עבד טכנית, אבל חזר ריק (0 תוצאות).")
+            print("❌ החיפוש עבד טכנית, אבל חזר ריק (0 תוצאות).")
 
 except Exception as e:
     print(f"💥 שגיאה קריטית: {e}")
-    

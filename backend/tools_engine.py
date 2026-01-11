@@ -13,12 +13,15 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from memory_engine import save_memory, save_episode
 
-# --- ייבוא מותנה למנועי חיפוש ופיננסים (מונע קריסה אם חסר) ---
+# --- ייבוא חיפוש חדש: DuckDuckGo (אמין ומהיר) ---
 try:
-    from googlesearch import search
+    from ddgs import DDGS
+    SEARCH_AVAILABLE = True
 except ImportError:
-    search = None
+    SEARCH_AVAILABLE = False
+    print("⚠️  DuckDuckGo Search לא מותקן - חיפוש לא יעבוד")
 
+# --- ייבוא מותנה לפיננסים ---
 try:
     import yfinance as yf
 except ImportError:
@@ -32,24 +35,21 @@ load_dotenv(ENV_PATH)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
 
-# --- פונקציית עזר לעדכון ה-Frontend (הבועות הסגולות) ---
+# --- פונקציית עזר לעדכון ה-Frontend ---
 def broadcast_tool_activity(message):
     try:
-        # איתור הנתיב לקובץ ה-JSON של הממשק
         live_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "live.json")
         
         current_data = {}
-        # קריאה זהירה של מה שכבר יש שם
         if os.path.exists(live_json_path):
             with open(live_json_path, "r", encoding="utf-8") as f:
                 try:
                     current_data = json.load(f)
-                except: pass
+                except: 
+                    pass
         
-        # עדכון הסטטוס בלבד
         current_data["status"] = message
         
-        # שמירה חזרה
         with open(live_json_path, "w", encoding="utf-8") as f:
             json.dump(current_data, f, ensure_ascii=False, indent=2)
             
@@ -59,7 +59,7 @@ def broadcast_tool_activity(message):
 class ToolsEngine:
     """
     מנהל את כל הכלים והיכולות הטכניות של Nog.
-    כולל: חיפוש חכם (פיננסי + גוגל), שליטה במחשב, וואטסאפ ויוטיוב.
+    גרסה משודרגת עם חיפוש DuckDuckGo אמין.
     """
     
     def handle_command(self, command_line):
@@ -67,15 +67,16 @@ class ToolsEngine:
         מקבל שורת פקודה ומבצע אותה.
         """
         command_line = command_line.strip()
-        if not command_line: return None
+        if not command_line: 
+            return None
         
         try:
-            # --- חיפוש חכם (השינוי הגדול) ---
+            # --- חיפוש חכם (מנוע חדש ומשופר) ---
             if command_line.startswith("SEARCH_CMD:"):
                 query = command_line.replace("SEARCH_CMD:", "").strip()
                 return self.search_smart(query)
 
-            # --- שאר הפקודות המקוריות שלך ---
+            # --- שאר הפקודות ---
             elif command_line.startswith("WEBSITE:"):
                 url = command_line.replace("WEBSITE:", "").strip()
                 webbrowser.open(url)
@@ -154,79 +155,115 @@ class ToolsEngine:
             
         return None
 
-    # --- חיפוש חכם: קריפטו/מניות דרך Yahoo, כל השאר דרך Google ---
+    # ═══════════════════════════════════════════════════════════
+    # 🔍 מנוע החיפוש החדש - DuckDuckGo (אמין ומהיר)
+    # ═══════════════════════════════════════════════════════════
+    
     def search_smart(self, query):
-        broadcast_tool_activity(f"בודק מידע על: {query}...")
+        """
+        חיפוש חכם עם 3 שכבות:
+        1. פיננסי (Bitcoin, stocks) → Yahoo Finance
+        2. אינטרנט כללי → DuckDuckGo
+        3. גיבוי → Wikipedia
+        """
+        broadcast_tool_activity(f"מחפש: {query}...")
         
-        # 1. בדיקה אם זה עניין כספי (ביטקוין, מניות)
+        # --- שכבה 1: בדיקה אם זה שאלה פיננסית ---
         query_lower = query.lower()
         finance_keywords = ["bitcoin", "btc", "price", "stock", "מחיר", "ביטקוין", "מניה", "שער", "ethereum", "eth"]
         
         if yf and any(w in query_lower for w in finance_keywords):
             print(f"📈 Yahoo Finance Check: {query}")
             try:
-                symbol = None
-                if "bitcoin" in query_lower or "btc" in query_lower or "ביטקוין" in query_lower:
-                    symbol = "BTC-USD"
-                elif "ethereum" in query_lower or "eth" in query_lower:
-                    symbol = "ETH-USD"
-                elif "apple" in query_lower:
-                    symbol = "AAPL"
-                elif "google" in query_lower:
-                    symbol = "GOOGL"
-                elif "tesla" in query_lower:
-                    symbol = "TSLA"
-                elif "microsoft" in query_lower:
-                    symbol = "MSFT"
-                elif "nvidia" in query_lower:
-                    symbol = "NVDA"
+                symbol = self._detect_stock_symbol(query_lower)
                 
                 if symbol:
                     broadcast_tool_activity(f"מושך נתונים פיננסיים: {symbol}")
                     ticker = yf.Ticker(symbol)
-                    # משיכת מחיר בזמן אמת (או סגירה אחרונה)
                     data = ticker.history(period="1d")
+                    
                     if not data.empty:
                         last_price = data['Close'].iloc[-1]
                         return f"המחיר הנוכחי של {symbol} הוא ${last_price:,.2f}."
             except Exception as e:
                 print(f"Finance Error: {e}")
-                # אם נכשל ב-Yahoo, ממשיכים לגוגל כרגיל
+                # אם נכשל, נמשיך לחיפוש רגיל
 
-        # 2. חיפוש בגוגל (ברירת מחדל לכל השאר)
-        return self.search_web(query)
+        # --- שכבה 2: חיפוש באינטרנט (DuckDuckGo) ---
+        return self.search_web_ddg(query)
 
-    def search_web(self, query):
-        """פונקציה פומבית לחיפוש (מנוע Google)"""
+    def _detect_stock_symbol(self, query_lower):
+        """מזהה סימול מניה/קריפטו מתוך השאלה"""
+        symbols = {
+            "bitcoin": "BTC-USD",
+            "btc": "BTC-USD",
+            "ביטקוין": "BTC-USD",
+            "ethereum": "ETH-USD",
+            "eth": "ETH-USD",
+            "apple": "AAPL",
+            "google": "GOOGL",
+            "tesla": "TSLA",
+            "microsoft": "MSFT",
+            "nvidia": "NVDA",
+            "amazon": "AMZN",
+            "meta": "META",
+            "netflix": "NFLX"
+        }
+        
+        for keyword, symbol in symbols.items():
+            if keyword in query_lower:
+                return symbol
+        return None
+
+    def search_web_ddg(self, query):
+        """
+        חיפוש באינטרנט דרך DuckDuckGo (אמין, מהיר, חינמי)
+        """
+        if not SEARCH_AVAILABLE:
+            return "⚠️ מנוע החיפוש לא זמין. הרץ: pip3.11 install duckduckgo-search --break-system-packages"
+        
         try:
-            broadcast_tool_activity(f"מחפש בגוגל: {query}")
-            print(f"🔎 Google Search: {query}")
+            broadcast_tool_activity(f"מחפש ב-DuckDuckGo: {query}")
+            print(f"🔎 DuckDuckGo Search: {query}")
             
-            if not search:
-                return "מנוע החיפוש (googlesearch) לא מותקן."
+            with DDGS() as ddgs:
+                # מושך 3 תוצאות עם תיאור מלא
+                results = list(ddgs.text(query, max_results=3))
             
-            results_text = ""
-            # advanced=True נותן לנו גם כותרת ותיאור
-            count = 0
-            for result in search(query, num_results=3, advanced=True):
-                title = result.title
-                desc = result.description
-                url = result.url
-                results_text += f"\nתוצאה {count+1}: {title}\n{desc}\n({url})\n"
-                count += 1
+            if not results:
+                # אם לא מצא, מנסה Wikipedia כגיבוי
+                return self._search_wikipedia_fallback(query)
             
-            if not results_text:
-                # ניסיון גיבוי לחיפוש רגיל (רק לינקים) אם ה-advanced נכשל
-                for url in search(query, num_results=3):
-                    results_text += f"- {url}\n"
+            # עיצוב התשובה
+            formatted_results = []
+            for i, result in enumerate(results, 1):
+                title = result.get('title', 'ללא כותרת')
+                body = result.get('body', '')
+                url = result.get('href', '')
+                
+                formatted_results.append(f"{i}. **{title}**\n{body[:150]}...\n🔗 {url}")
             
-            return results_text if results_text else "לא נמצאו תוצאות בגוגל."
-
+            return "\n\n".join(formatted_results)
+            
         except Exception as e:
-            print(f"❌ Google Error: {e}")
-            return f"שגיאה בחיפוש: {str(e)}"
+            print(f"❌ DuckDuckGo Error: {e}")
+            return self._search_wikipedia_fallback(query)
 
-    # --- שאר המימושים (ללא שינוי מהקוד המקורי שלך) ---
+    def _search_wikipedia_fallback(self, query):
+        """גיבוי: חיפוש בוויקיפדיה"""
+        try:
+            import wikipedia
+            wikipedia.set_lang("he")
+            
+            summary = wikipedia.summary(query, sentences=2)
+            return f"📚 ויקיפדיה:\n{summary}"
+            
+        except:
+            return "לא הצלחתי למצוא מידע. נסה לנסח את השאלה אחרת."
+
+    # ═══════════════════════════════════════════════════════════
+    # 🛠️ כלים נוספים (ללא שינוי)
+    # ═══════════════════════════════════════════════════════════
 
     def add_calendar_event(self, title, date_time_str):
         print(f"📅 קובע פגישה: {title} ב-{date_time_str}")
@@ -280,29 +317,40 @@ class ToolsEngine:
             lines = (line.strip() for line in text.splitlines())
             clean_text = '\n'.join(chunk for line in lines for chunk in line.split("  ") if chunk)
             return clean_text[:4000]
-        except Exception as e: return f"שגיאה בקריאה: {e}"
+        except Exception as e: 
+            return f"שגיאה בקריאה: {e}"
 
     def _get_youtube_transcript(self, video_url):
         broadcast_tool_activity("מוריד תמלול וידאו...")
         try:
-            if "v=" in video_url: video_id = video_url.split("v=")[1].split("&")[0]
-            elif "youtu.be/" in video_url: video_id = video_url.split("/")[-1]
-            else: return "לינק לא תקין."
+            if "v=" in video_url: 
+                video_id = video_url.split("v=")[1].split("&")[0]
+            elif "youtu.be/" in video_url: 
+                video_id = video_url.split("/")[-1]
+            else: 
+                return "לינק לא תקין."
+            
             try:
                 transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
             except: 
                 t_list = YouTubeTranscriptApi.list_transcripts(video_id)
                 transcript = t_list.find_generated_transcript(['en', 'he']).fetch()
+            
             full_text = " ".join([t['text'] for t in transcript])
             return full_text[:6000]
-        except Exception as e: return f"שגיאה ביוטיוב: {e}"
+        except Exception as e: 
+            return f"שגיאה ביוטיוב: {e}"
 
     def _control_system(self, action):
         cmd = ""
-        if action == "VOL_UP": cmd = "set volume output volume (output volume of (get volume settings) + 10)"
-        elif action == "VOL_DOWN": cmd = "set volume output volume (output volume of (get volume settings) - 10)"
-        elif action == "MUTE": cmd = "set volume output muted true"
-        elif action == "UNMUTE": cmd = "set volume output muted false"
+        if action == "VOL_UP": 
+            cmd = "set volume output volume (output volume of (get volume settings) + 10)"
+        elif action == "VOL_DOWN": 
+            cmd = "set volume output volume (output volume of (get volume settings) - 10)"
+        elif action == "MUTE": 
+            cmd = "set volume output muted true"
+        elif action == "UNMUTE": 
+            cmd = "set volume output muted false"
         
         if cmd:
             os.system(f"osascript -e '{cmd}'")
@@ -314,30 +362,41 @@ class ToolsEngine:
             script = f'quit app "{app_name}"'
             os.system(f"osascript -e '{script}'")
             return f"סגרתי את {app_name}."
-        except: return "תקלה בסגירה."
+        except: 
+            return "תקלה בסגירה."
 
     def _find_files(self, query):
         try:
             cmd = ["mdfind", "-name", query]
             result = subprocess.run(cmd, capture_output=True, text=True)
             paths = result.stdout.strip().split('\n')[:5]
-            if not paths or paths == ['']: return "לא מצאתי קבצים."
+            if not paths or paths == ['']: 
+                return "לא מצאתי קבצים."
             return "קבצים שנמצאו:\n" + "\n".join(paths)
-        except: return "שגיאה בחיפוש."
+        except: 
+            return "שגיאה בחיפוש."
 
     def _create_file(self, filename, content):
         try:
-            if "." not in filename: filename += ".txt"
+            if "." not in filename: 
+                filename += ".txt"
             file_path = os.path.join(DESKTOP_PATH, filename)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             return f"יצרתי את הקובץ {filename}."
-        except: return "שגיאה ביצירת קובץ."
+        except: 
+            return "שגיאה ביצירת קובץ."
 
     def _generate_image(self, prompt):
         broadcast_tool_activity(f"מייצר תמונה: {prompt}")
         try:
-            response = client.images.generate(model="dall-e-3", prompt=prompt, size="1024x1024", quality="standard", n=1)
+            response = client.images.generate(
+                model="dall-e-3", 
+                prompt=prompt, 
+                size="1024x1024", 
+                quality="standard", 
+                n=1
+            )
             image_url = response.data[0].url
             img_data = requests.get(image_url).content
             filename = f"nog_art_{int(time.time())}.png"
@@ -345,14 +404,16 @@ class ToolsEngine:
             with open(file_path, 'wb') as handler:
                 handler.write(img_data)
             return f"נשמר: {file_path}"
-        except Exception as e: return f"שגיאה: {e}"
+        except Exception as e: 
+            return f"שגיאה: {e}"
 
     def _set_wallpaper(self, image_path):
         try:
             script = f'tell application "System Events" to set picture of every desktop to "{image_path}"'
             subprocess.run(["osascript", "-e", script])
             return "הטפט הוחלף."
-        except: return "תקלה בהחלפת טפט."
+        except: 
+            return "תקלה בהחלפת טפט."
 
     def _send_whatsapp(self, contact_name, message):
         broadcast_tool_activity(f"שולח וואטסאפ ל-{contact_name}")
