@@ -34,6 +34,14 @@ from conversation_state import state_machine, State
 from tools_engine import tools
 from self_model import self_model
 from goals import goal_manager
+from user_model import user_model
+from beliefs import beliefs_system
+from verification import verification_engine
+from metacognition import metacognition
+from initiative_system import initiative_system  # ← Week 3
+from prediction_engine import prediction_engine  # ← Week 3
+from intervention_logic import intervention_logic  # ← Week 3
+from autonomous_learning import autonomous_learning  # ← Week 3
 
 warnings.filterwarnings("ignore")
 
@@ -386,6 +394,20 @@ def subconscious_loop():
                 consolidate_memory()
             except Exception as e:
                 print(f"Consolidation Error: {e}")
+            
+            # ⭐ Week 2: אימות אמונות במהלך חלום
+            try:
+                print("🔍 Verifying beliefs...")
+                verification_engine.auto_verify_uncertain_beliefs(max_to_verify=2)
+            except Exception as e:
+                print(f"Verification Error: {e}")
+            
+            # ⭐ Week 3: למידה אוטונומית
+            try:
+                print("🧠 Running autonomous learning...")
+                autonomous_learning.run_learning_cycle()
+            except Exception as e:
+                print(f"Learning Error: {e}")
                 
             update_ui("חולם", "", "מבצע אופטימיזציה...")
             perform_self_reflection(auto_mode=True)
@@ -414,15 +436,19 @@ def startup_greeting():
     current_time = datetime.now().strftime("%A, %d/%m/%Y, %H:%M")
     
     identity = self_model.get_identity_statement()
+    user_state = user_model.predict_current_state()  # ← NEW!
     
     system_content = f"""
 {identity}
 
+👤 USER STATE PREDICTION:
+{user_state}
+
 זמן: {current_time}. מיקום: Dallas, TX.
-מצב רוח: {mood['current_mood']}, קשר: {rel['relationship_tier']}
+מצב רוח שלי: {mood['current_mood']}, קשר: {rel['relationship_tier']}
 [יומן]: {calendar_data}
 חוץ: {weather_info}
-משימה: תדרוך בוקר קצר בטון שמתאים לרמת הקשר.
+משימה: תדרוך בוקר קצר שמתאים למצב המשתמש + לרמת הקשר.
 """
     greeting = ask_gpt([{"role": "system", "content": system_content}])
     if greeting:
@@ -462,6 +488,79 @@ def generate_deep_thought(user_text, ai_response):
         print(f"Thought Error: {e}")
         return None
 
+def learn_from_interaction(user_input, decision_data):
+    """
+    ⭐ NEW! לומד דפוסים מהאינטראקציה הנוכחית.
+    + Week 2: לומד גם אמונות!
+    """
+    current_hour = datetime.now().hour
+    
+    # למד שעת פרודוקטיביות אם המשתמש עשה משהו מועיל
+    productive_indicators = ["צ'אט", "תעזור", "תעשה", "תבדוק", "coding", "work"]
+    if any(ind in user_input.lower() for ind in productive_indicators):
+        user_model.learn_pattern("productive_time", {
+            "hour": current_hour,
+            "task": "interaction",
+            "success": True
+        })
+        
+        # ⭐ Week 2: צור אמונה אם אין עדיין
+        if 22 <= current_hour or current_hour < 3:
+            existing = beliefs_system.get_belief("about_user", "works_at_night")
+            if not existing:
+                beliefs_system.add_belief(
+                    "about_user",
+                    "works_at_night",
+                    "Maor is most productive late at night (22:00-03:00)",
+                    confidence=0.5,
+                    source="pattern_observation"
+                )
+            else:
+                beliefs_system.update_belief("about_user", "works_at_night", "for", 0.05)
+    
+    # זהה הסחות דעת
+    distraction_indicators = ["ביטקוין", "bitcoin", "btc", "מחיר", "price"]
+    if any(ind in user_input.lower() for ind in distraction_indicators):
+        user_model.learn_pattern("distraction", {
+            "trigger": "bitcoin_price",
+            "hour": current_hour
+        })
+        
+        # ⭐ Week 2: אמונה על הסחה
+        existing = beliefs_system.get_belief("about_user", "distracted_by_bitcoin")
+        if not existing:
+            beliefs_system.add_belief(
+                "about_user",
+                "distracted_by_bitcoin",
+                "Maor gets distracted by Bitcoin price",
+                confidence=0.4,
+                source="pattern_observation"
+            )
+        else:
+            beliefs_system.update_belief("about_user", "distracted_by_bitcoin", "for", 0.1)
+    
+    # זהה אנרגיה נמוכה
+    tired_indicators = ["עייף", "נמאס", "מיואש", "tired", "exhausted"]
+    if any(ind in user_input.lower() for ind in tired_indicators):
+        user_model.learn_pattern("energy_dip", {
+            "time": f"{current_hour:02d}:00",
+            "severity": "high"
+        })
+        
+        # ⭐ Week 2: למד שעות עייפות
+        key = f"tired_at_{current_hour:02d}h"
+        existing = beliefs_system.get_belief("about_user", key)
+        if not existing:
+            beliefs_system.add_belief(
+                "about_user",
+                key,
+                f"Maor tends to be tired around {current_hour:02d}:00",
+                confidence=0.5,
+                source="user_feedback"
+            )
+        else:
+            beliefs_system.update_belief("about_user", key, "for", 0.15)
+
 def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=None, decision_data=None):
     global last_interaction_time
     last_interaction_time = time.time()
@@ -471,6 +570,19 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     state_machine.increment_interaction() 
 
     update_ui("מעבד נתונים...", prompt, "")
+    
+    # ⭐ NEW! למד דפוסים מהאינטראקציה
+    learn_from_interaction(prompt, decision_data)
+    
+    # ⭐ Week 2: בדיקת Ask-Back
+    if decision_data and decision_data.get("response_style") == "ask_back":
+        ask_question = decision_data.get("ask_back_question", "לא הבנתי - תוכל להסביר?")
+        update_ui("שואל להבהרה", prompt, ask_question)
+        speak(ask_question)
+        print(f"❓ Nog asks: {ask_question}")
+        metacognition.state["meta"]["total_ask_backs"] += 1
+        metacognition.save()
+        return
     
     identity_questions = ["מי אתה", "who are you", "what are you", "תספר על עצמך"]
     if any(q in prompt.lower() for q in identity_questions):
@@ -543,6 +655,7 @@ Return JSON:
     decision_reasoning = ""
     behavioral_rules = ""
     life_vector_guidance = ""
+    user_context = ""
     
     if decision_data:
         style = decision_data.get('response_style', 'normal')
@@ -550,6 +663,7 @@ Return JSON:
         confidence = decision_data.get('confidence', 0.5)
         behavioral_rules = decision_data.get('behavioral_rules', '')
         life_vector_guidance = decision_data.get('life_vector_guidance', '')
+        user_context = decision_data.get('user_context', '')  # ← NEW!
         
         if style == 'firm_refusal':
             conflict_data = decision_data.get('conflict_data', {})
@@ -597,6 +711,13 @@ Return JSON:
     
     self_context = decision_data.get('self_context', self_model.get_full_context_for_gpt()) if decision_data else self_model.get_full_context_for_gpt()
 
+    # ⭐ NEW! הוספת User Communication Preferences
+    user_comm_prefs = user_model.get_communication_preferences()
+    
+    # ⭐ Week 2: הוספת Beliefs + Metacognition
+    beliefs_context = decision_data.get('beliefs_context', '') if decision_data else ''
+    metacog_context = decision_data.get('metacog_context', '') if decision_data else ''
+
     system_content = f"""
     {self_context}
     
@@ -615,6 +736,23 @@ Return JSON:
     {'═'*60}
     🧬 LIFE VECTOR (Core Identity & Values):
     {life_vector_guidance if life_vector_guidance else "Operating with core values"}
+    {'═'*60}
+    
+    {'═'*60}
+    👤 USER MODEL (Deep Understanding):
+    {user_context if user_context else "Building user understanding..."}
+    
+    {user_comm_prefs}
+    {'═'*60}
+    
+    {'═'*60}
+    💭 BELIEFS SYSTEM (What I "Know"):
+    {beliefs_context if beliefs_context else "Building beliefs about user and world..."}
+    {'═'*60}
+    
+    {'═'*60}
+    🔍 METACOGNITION (Self-Awareness):
+    {metacog_context if metacog_context else "Learning my own limitations..."}
     {'═'*60}
     
     *** IMPORTANT: YOU HAVE REAL-TIME INTERNET ACCESS ***
@@ -755,6 +893,33 @@ def proactive_check_loop():
                     print(f"Vision Error: {e}")
 
         if current_time % check_interval < 60: 
+            # === Week 3: Proactive Intelligence ===
+            
+            # 1. בדוק אם צריך יוזמה (Initiative)
+            initiative_check = initiative_system.should_initiate()
+            if initiative_check["should_initiate"]:
+                topic = initiative_check["topic"]
+                opening = initiative_system.generate_opening(topic, "peak_time_nudge")
+                print(f"💡 Initiative: {opening}")
+                speak(opening)
+                continue
+            
+            # 2. בדוק אם צריך להתערב (Intervention)
+            context = {"current_task": None, "task_duration_minutes": 0}
+            intervention_check = intervention_logic.should_intervene(context)
+            if intervention_check["should_intervene"]:
+                message = intervention_check["message"]
+                print(f"🚨 Intervention: {message}")
+                speak(message)
+                continue
+            
+            # 3. חזה מה המשתמש ירצה (Prediction)
+            prediction = prediction_engine.predict_next_action(context)
+            if prediction["should_offer"]:
+                print(f"🔮 Prediction: {prediction['prediction']}")
+                # לא מדבר אוטומטית - רק מוכן
+            
+            # 4. תהליך רגיל (מהקוד המקורי)
             decision = brain.process_input("Proactive check", "proactive")
             
             if decision["should_respond"]:
@@ -784,7 +949,11 @@ def listen_loop():
         recognizer.adjust_for_ambient_noise(source, duration=1)
         
     update_ui("מוכנה")
-    print("\n🎤 --- Nog Connected (Self-Model + Goals + Full Brain) ---")
+    print("\n🎤 --- Nog V8: FULL ENTITY (Weeks 1+2+3) ACTIVE ---")
+    print("✅ Self-Model | Goals | User Model")
+    print("✅ Beliefs | Metacognition | Verification")
+    print("✅ Initiative | Prediction | Intervention | Autonomous Learning")
+    print("🔥 Nog is now fully autonomous and self-improving!")
     
     threading.Thread(target=startup_greeting).start()
     threading.Thread(target=proactive_check_loop, daemon=True).start()

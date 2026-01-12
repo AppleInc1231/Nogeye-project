@@ -22,21 +22,24 @@ class DecisionCore:
     """
     המוח המחליט של Nog.
     מקבל קלט ומצב, מחזיר החלטה.
+    
+    ⭐ NEW: עכשיו משתמש גם ב-User Model Predictions!
     """
     
     def __init__(self):
         self.last_decision_time = datetime.now()
         self.interaction_history = []  # היסטוריית החלטות אחרונות
         
-    def decide(self, user_input, emotion_state, relationship_state, context):
+    def decide(self, user_input, emotion_state, relationship_state, context, user_state_prediction=None):
         """
-        פונקציית החלטה ראשית - משודרגת עם Behavioral Memory!
+        פונקציית החלטה ראשית - משודרגת עם Behavioral Memory + User Model!
         
         Args:
             user_input (str): מה המשתמש אמר
             emotion_state (dict): מצב רוח ואנרגיה של Nog
             relationship_state (dict): רמת קשר עם המשתמש
             context (dict): הקשר נוכחי (מה קורה עכשיו)
+            user_state_prediction (dict): ⭐ NEW! חיזוי מצב המשתמש
             
         Returns:
             dict: {
@@ -48,7 +51,7 @@ class DecisionCore:
             }
         """
         
-        # === חדש! בדיקה אם המשתמש נתן פידבק ===
+        # === בדיקה אם המשתמש נתן פידבק ===
         if behavioral_memory.analyze_feedback(user_input):
             print("🎓 Learned new behavior from feedback!")
         
@@ -64,8 +67,37 @@ class DecisionCore:
             "response_style": "normal",
             "reasoning": "",
             "confidence": 0.5,
-            "behavioral_rules": ""  # חדש!
+            "behavioral_rules": ""
         }
+        
+        # ═══════════════════════════════════════════════════════════
+        # ⭐ NEW! Layer 0: User State Prediction (הכי גבוה בעדיפות!)
+        # ═══════════════════════════════════════════════════════════
+        
+        if user_state_prediction:
+            recommended_approach = user_state_prediction.get("recommended_approach", "balanced")
+            user_energy = user_state_prediction.get("energy_level", "medium")
+            productivity = user_state_prediction.get("productivity_potential", 0.5)
+            reasoning_hints = user_state_prediction.get("reasoning", [])
+            
+            # התאמה אוטומטית לפי מצב המשתמש
+            if recommended_approach == "gentle" or user_energy == "low":
+                decision["response_style"] = "short"
+                decision["reasoning"] = f"User in low energy state: {reasoning_hints[0] if reasoning_hints else 'Based on patterns'}"
+                decision["confidence"] = 0.75
+                print(f"👤 User Model Override: gentle approach (low energy)")
+            
+            elif recommended_approach == "challenging" and productivity > 0.7:
+                decision["response_style"] = "action_oriented"
+                decision["reasoning"] = f"User in peak productive state - push for action"
+                decision["confidence"] = 0.85
+                print(f"👤 User Model Override: challenging approach (peak time)")
+            
+            elif recommended_approach == "supportive":
+                decision["response_style"] = "friendly_chatty"
+                decision["reasoning"] = "User may need encouragement"
+                decision["confidence"] = 0.7
+                print(f"👤 User Model Override: supportive approach")
         
         # ═══════════════════════════════════════════════════════════
         # Decision Tree - עץ ההחלטות (עם זיכרון התנהגותי!)
@@ -93,7 +125,7 @@ class DecisionCore:
             decision["confidence"] = 0.9
             return decision
         
-        # --- Layer 2: בדיקת מצב רגשי ---
+        # --- Layer 2: בדיקת מצב רגשי (של Nog) ---
         
         # 2.1 עייפות קיצונית
         if energy < 0.2:
@@ -122,9 +154,11 @@ class DecisionCore:
         # 2.3 מצב רוח מצוין
         if momentum > 0.6 and energy > 0.7:
             if affinity > 50:
-                decision["response_style"] = "friendly_chatty"
-                decision["reasoning"] = "Good mood, close relationship"
-                decision["confidence"] = 0.9
+                # רק אם User Model לא דרס כבר
+                if not user_state_prediction or user_state_prediction.get("recommended_approach") != "gentle":
+                    decision["response_style"] = "friendly_chatty"
+                    decision["reasoning"] = "Good mood, close relationship"
+                    decision["confidence"] = 0.9
         
         # --- Layer 3: ניתוח תוכן השאלה ---
         
@@ -168,7 +202,7 @@ class DecisionCore:
                 decision["reasoning"] = "In the middle of a process"
                 decision["confidence"] = 0.7
         
-        # === חדש! Layer 5: התאמה לפי Behavioral Memory ===
+        # === Layer 5: התאמה לפי Behavioral Memory ===
         decision["response_style"] = behavioral_memory.apply_to_style(decision["response_style"])
         decision["behavioral_rules"] = behavioral_memory.get_context_instructions()
         

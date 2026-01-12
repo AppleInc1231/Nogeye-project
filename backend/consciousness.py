@@ -8,6 +8,9 @@ from context_manager import context_manager
 from life_vector import life_vector
 from internal_conflict import internal_conflict
 from self_model import self_model
+from user_model import user_model
+from beliefs import beliefs_system  # ← Week 2
+from metacognition import metacognition  # ← Week 2
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
@@ -23,9 +26,12 @@ class Consciousness:
     - החלטות (DecisionCore) 
     - הקשר (ContextManager)
     - זהות (psyche.json)
-    - נשמה (LifeVector) ⭐
-    - קונפליקט פנימי (InternalConflict) ⭐
-    - מודל עצמי (SelfModel) ⭐⭐
+    - נשמה (LifeVector) ⭐ Week 1
+    - קונפליקט פנימי (InternalConflict) ⭐ Week 1
+    - מודל עצמי (SelfModel) ⭐ Week 1
+    - מודל משתמש (UserModel) ⭐ Week 1
+    - מערכת אמונות (Beliefs) ⭐⭐ Week 2
+    - מודעות עצמית (Metacognition) ⭐⭐ Week 2
     """
     
     def __init__(self):
@@ -54,24 +60,47 @@ class Consciousness:
 
     def process_input(self, user_input, input_type="speech"):
         """
-        הלב של המערכת - משודרג עם Life Vector + Internal Conflict + Self Model!
+        הלב של המערכת - משודרג עם Week 1 + Week 2!
         
         תהליך:
+        0. ⭐ NEW! בדיקת אמונות ואי-ודאות (Beliefs + Metacognition)
         1. בדיקת קונפליקט פנימי (האם צריך לסרב/לאתגר?)
         2. עדכון רגשי
-        3. החלטה על תגובה
-        4. שילוב ערכים והנחיות
-        5. שילוב Self-Model (זהות עצמית)
+        3. חיזוי מצב המשתמש
+        4. החלטה על תגובה (כולל שילוב חיזוי המשתמש)
+        5. שילוב ערכים והנחיות
+        6. ⭐ NEW! בדיקת צורך ב-Ask-Back
         
         Args:
             user_input (str): מה המשתמש אמר
             input_type (str): סוג הקלט ("speech", "proactive", "command")
             
         Returns:
-            dict: החלטה מלאה כולל conflict_data + self_context
+            dict: החלטה מלאה עם כל הקונטקסטים
         """
         
+        # === ⭐ NEW! שלב -1: Metacognition - בדיקת אי-ודאות ===
         context = context_manager.get_context()
+        
+        # בדוק אם צריך לשאול שאלת הבהרה
+        ask_back_check = metacognition.should_ask_back(user_input, context)
+        
+        if ask_back_check["should_ask"]:
+            print(f"❓ Ask-Back Triggered: {ask_back_check['reason']}")
+            # החזר החלטה מיוחדת עם שאלת הבהרה
+            return {
+                "should_respond": True,
+                "response_style": "ask_back",
+                "ask_back_question": ask_back_check["question"],
+                "reasoning": ask_back_check["reason"],
+                "confidence": 0.3,
+                "self_context": self_model.get_full_context_for_gpt(),
+                "user_context": user_model.get_summary(),
+                "beliefs_context": beliefs_system.get_context_for_gpt(),
+                "metacog_context": metacognition.get_context_for_gpt()
+            }
+        
+        # === שלב 0: בדיקת קונפליקט פנימי ===
         conflict_evaluation = internal_conflict.evaluate_request(user_input, context)
         
         if not conflict_evaluation["should_comply"] and conflict_evaluation["response_style"] == "firm_refusal":
@@ -84,12 +113,17 @@ class Consciousness:
                 "learned_context": self._get_learned_rules(),
                 "psyche": self.psyche,
                 "life_vector_guidance": self._get_life_vector_guidance(user_input),
-                "self_context": self_model.get_full_context_for_gpt()
+                "self_context": self_model.get_full_context_for_gpt(),
+                "user_context": user_model.get_summary(),
+                "beliefs_context": beliefs_system.get_context_for_gpt(),
+                "metacog_context": metacognition.get_context_for_gpt()
             }
         
+        # === שלב 1: עדכון רגשי ===
         stimulus = self._calculate_stimulus(user_input)
         self.emotion_engine.update_mood(stimulus)
         
+        # === שלב 2: איסוף מצב נוכחי ===
         emotion_state = {
             "momentum": self.emotion_engine.momentum,
             "energy": self.emotion_engine.energy
@@ -97,28 +131,45 @@ class Consciousness:
         
         relationship_state = self.load_relationship()
         
+        # === שלב 3: חיזוי מצב המשתמש ===
+        user_state_prediction = user_model.predict_current_state()
+        print(f"👤 User State: {user_state_prediction['energy_level']} energy, {user_state_prediction['productivity_potential']:.0%} productivity")
+        
+        # === שלב 4: החלטה (עם שילוב חיזוי המשתמש!) ===
         decision = decision_core.decide(
             user_input=user_input,
             emotion_state=emotion_state,
             relationship_state=relationship_state,
-            context=context
+            context=context,
+            user_state_prediction=user_state_prediction
         )
         
+        # === שלב 5: שילוב כל ההקשרים ===
         decision["life_vector_guidance"] = self._get_life_vector_guidance(user_input)
         decision["conflict_data"] = conflict_evaluation
         decision["self_context"] = self_model.get_full_context_for_gpt()
+        decision["user_context"] = user_model.get_summary()
+        decision["user_state"] = user_state_prediction
         
+        # ⭐ NEW! שלב 5.5: הוספת Beliefs + Metacognition
+        decision["beliefs_context"] = beliefs_system.get_context_for_gpt()
+        decision["metacog_context"] = metacognition.get_context_for_gpt()
+        
+        # אם יש אתגור (לא סירוב מוחלט) - משלבים אותו
         if conflict_evaluation.get("challenge_level"):
             decision["has_challenge"] = True
             decision["challenge_message"] = conflict_evaluation.get("alternative_suggestion")
             print(f"⚡ CHALLENGE: {conflict_evaluation['conflict_type']} - {conflict_evaluation['challenge_level']}")
         
+        # === שלב 6: הוספת מידע נוסף ===
         decision["learned_context"] = self._get_learned_rules()
         decision["psyche"] = self.psyche
         
+        # === שלב 7: עדכון הקשר ===
         if decision["should_respond"]:
             context_manager.update_interaction(user_said_something=True)
         
+        # הדפסת החלטה
         print(f"🧠 Decision: {decision['reasoning']} → {decision['response_style']} (confidence: {decision['confidence']:.2f})")
         
         return decision

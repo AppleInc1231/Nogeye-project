@@ -1,0 +1,87 @@
+{
+  "user_info": {
+    "name": "Maor",
+    "location": "Dallas, TX",
+    "timezone": "America/Chicago",
+    "primary_language": "Hebrew",
+    "work_type": "Entrepreneur/Developer"
+  },
+  "patterns": {
+    "productive_hours": {
+      "morning": {
+        "start": "09:00",
+        "end": "12:00",
+        "confidence": 0.3
+      },
+      "evening": {
+        "start": "20:00",
+        "end": "23:00",
+        "confidence": 0.5
+      },
+      "late_night": {
+        "start": "23:00",
+        "end": "02:00",
+        "confidence": 0.7
+      }
+    },
+    "energy_dips": {
+      "post_lunch": {
+        "time": "14:00-16:00",
+        "severity": "medium",
+        "observed": 0
+      },
+      "early_morning": {
+        "time": "06:00-08:00",
+        "severity": "high",
+        "observed": 0
+      }
+    },
+    "distraction_triggers": {
+      "social_media": {
+        "count": 0,
+        "severity": "unknown"
+      },
+      "news": {
+        "count": 0,
+        "severity": "unknown"
+      },
+      "youtube": {
+        "count": 0,
+        "severity": "unknown"
+      },
+      "bitcoin_price": {
+        "count": 1,
+        "severity": "low"
+      }
+    },
+    "peak_performance": {
+      "best_hours": [],
+      "best_days": [],
+      "flow_state_triggers": []
+    }
+  },
+  "goals": {
+    "stated": [],
+    "inferred": []
+  },
+  "preferences": {
+    "communication_style": "direct",
+    "response_length": "medium",
+    "humor_level": "high",
+    "challenge_tolerance": "high"
+  },
+  "behavioral_observations": {
+    "works_late": 0,
+    "early_riser": 0,
+    "weekend_worker": 0,
+    "task_switcher": 0,
+    "deep_focus_sessions": 0
+  },
+  "emotional_patterns": {
+    "stress_indicators": [],
+    "motivation_boosters": [],
+    "frustration_triggers": []
+  },
+  "last_updated": "2026-01-12T14:56:10.639671",
+  "observation_count": 2
+}
