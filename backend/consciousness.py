@@ -3,6 +3,10 @@ import os
 import random
 from datetime import datetime
 from emotion_engine import EmotionEngine
+from decision_core import decision_core
+from context_manager import context_manager
+from life_vector import life_vector
+from internal_conflict import internal_conflict
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
@@ -10,6 +14,18 @@ PSYCHE_PATH = os.path.join(DATA_DIR, "psyche.json")
 RELATIONSHIP_PATH = os.path.join(DATA_DIR, "relationship_state.json")
 
 class Consciousness:
+    """
+    המודעות של Nog - שכבת החשיבה הגבוהה ביותר.
+    
+    משלב:
+    - רגש (EmotionEngine)
+    - החלטות (DecisionCore) 
+    - הקשר (ContextManager)
+    - זהות (psyche.json)
+    - נשמה (LifeVector) ⭐
+    - קונפליקט פנימי (InternalConflict) ⭐
+    """
+    
     def __init__(self):
         self.emotion_engine = EmotionEngine()
         self.load_psyche()
@@ -36,69 +52,146 @@ class Consciousness:
 
     def process_input(self, user_input, input_type="speech"):
         """
-        הלב של המערכת. מקבל קלט ומחליט האם ואיך להגיב.
-        מחזיר מילון עם ההחלטה.
-        """
-        # 1. עדכון רגשי (האם מה שנאמר משמח/מעצבן?)
-        # ניתוח פשטני בינתיים - בעתיד נחבר ל-NLP אמיתי
-        stimulus = 0.1
-        if any(w in user_input for w in ["תודה", "מעולה", "גאון", "טוב"]): 
-            stimulus = 0.3
-        elif any(w in user_input for w in ["טיפש", "גרוע", "סתום", "רע"]): 
-            stimulus = -0.5
+        הלב של המערכת - משודרג עם Life Vector + Internal Conflict!
+        
+        תהליך:
+        1. בדיקת קונפליקט פנימי (האם צריך לסרב/לאתגר?)
+        2. עדכון רגשי
+        3. החלטה על תגובה
+        4. שילוב ערכים והנחיות
+        
+        Args:
+            user_input (str): מה המשתמש אמר
+            input_type (str): סוג הקלט ("speech", "proactive", "command")
             
+        Returns:
+            dict: החלטה מלאה כולל conflict_data
+        """
+        
+        # === NEW! שלב 0: בדיקת קונפליקט פנימי ===
+        context = context_manager.get_context()
+        conflict_evaluation = internal_conflict.evaluate_request(user_input, context)
+        
+        # אם יש קונפליקט חמור - זה עוצר את כל התהליך
+        if not conflict_evaluation["should_comply"] and conflict_evaluation["response_style"] == "firm_refusal":
+            print(f"🚫 REFUSAL: {conflict_evaluation['reasoning']}")
+            return {
+                "should_respond": True,  # כן נגיב, אבל עם סירוב
+                "response_style": "firm_refusal",
+                "reasoning": conflict_evaluation["reasoning"],
+                "conflict_data": conflict_evaluation,
+                "learned_context": self._get_learned_rules(),
+                "psyche": self.psyche,
+                "life_vector_guidance": self._get_life_vector_guidance(user_input)
+            }
+        
+        # === שלב 1: עדכון רגשי ===
+        stimulus = self._calculate_stimulus(user_input)
         self.emotion_engine.update_mood(stimulus)
-        current_mood = self.emotion_engine.momentum
-        current_energy = self.emotion_engine.energy
         
-        rel = self.load_relationship()
-        affinity = rel.get("affinity_score", 0)
-
-        decision = {
-            "should_respond": True,
-            "response_style": "normal", # normal, short_tired, terse, friendly_chatty, action_oriented
-            "internal_reasoning": ""
+        # === שלב 2: איסוף מצב נוכחי ===
+        emotion_state = {
+            "momentum": self.emotion_engine.momentum,
+            "energy": self.emotion_engine.energy
         }
-
-        # --- לוגיקת קבלת ההחלטות (The Soul) ---
-
-        # 1. סירוב בגלל יחסים גרועים
-        if affinity < -10 and current_mood < -0.5:
-            decision["should_respond"] = False
-            decision["internal_reasoning"] = "I am angry and we are not close. Ignoring."
-            return decision
-
-        # 2. עייפות (Energy Low)
-        if current_energy < 0.2:
-            decision["response_style"] = "short_tired"
-            decision["internal_reasoning"] = "Low energy. I will answer briefly."
         
-        # 3. מצב רוח רע (Mood Low)
-        elif current_mood < -0.3:
-            decision["response_style"] = "terse"
-            decision["internal_reasoning"] = "Bad mood. I will be sharp and direct."
-
-        # 4. חברות טובה (High Affinity)
-        elif affinity > 50 and current_mood > 0.2:
-            decision["response_style"] = "friendly_chatty"
-            decision["internal_reasoning"] = "We are friends. I will be warm and playful."
-
-        # 5. דחיפות (מילים כמו 'מהר', 'עכשיו')
-        if any(w in user_input for w in ["מהר", "דחוף", "עכשיו", "מיד"]):
-            decision["response_style"] = "action_oriented"
-            decision["internal_reasoning"] = "User signaled urgency. Skipping pleasantries."
-
-        # 6. בדיקה פרואקטיבית (אם הקריאה הגיעה מהטיימר ולא מדיבור)
-        if input_type == "proactive":
-            # ליזום רק אם יש אנרגיה גבוהה ומצב רוח טוב
-            if current_energy > 0.6 and current_mood > 0.3:
-                 decision["should_respond"] = True
-                 decision["internal_reasoning"] = "Feeling good, let's chat."
-            else:
-                 decision["should_respond"] = False
-                 decision["internal_reasoning"] = "Not in the mood to initiate."
-
+        relationship_state = self.load_relationship()
+        
+        # === שלב 3: החלטה (עם שילוב conflict אם יש) ===
+        decision = decision_core.decide(
+            user_input=user_input,
+            emotion_state=emotion_state,
+            relationship_state=relationship_state,
+            context=context
+        )
+        
+        # === NEW! שלב 4: שילוב Life Vector ===
+        decision["life_vector_guidance"] = self._get_life_vector_guidance(user_input)
+        decision["conflict_data"] = conflict_evaluation
+        
+        # אם יש אתגור (לא סירוב מוחלט) - משלבים אותו
+        if conflict_evaluation.get("challenge_level"):
+            decision["has_challenge"] = True
+            decision["challenge_message"] = conflict_evaluation.get("alternative_suggestion")
+            print(f"⚡ CHALLENGE: {conflict_evaluation['conflict_type']} - {conflict_evaluation['challenge_level']}")
+        
+        # === שלב 5: הוספת מידע נוסף ===
+        decision["learned_context"] = self._get_learned_rules()
+        decision["psyche"] = self.psyche
+        
+        # === שלב 6: עדכון הקשר ===
+        if decision["should_respond"]:
+            context_manager.update_interaction(user_said_something=True)
+        
+        # הדפסת החלטה
+        print(f"🧠 Decision: {decision['reasoning']} → {decision['response_style']} (confidence: {decision['confidence']:.2f})")
+        
         return decision
+    
+    def _get_life_vector_guidance(self, user_input):
+        """
+        מחזיר הנחיות מ-Life Vector לגבי איך להתייחס לקלט הזה.
+        
+        Returns:
+            str: הנחיות טקסטואליות
+        """
+        guidance = []
+        
+        # הוספת PRIME DIRECTIVE
+        guidance.append("🎯 PRIME DIRECTIVE:")
+        guidance.append(life_vector.PRIME_DIRECTIVE.strip())
+        
+        # הוספת VOICE PROFILE
+        guidance.append("\n🗣️ VOICE & APPROACH:")
+        guidance.append(f"Essence: {life_vector.VOICE_PROFILE['essence']}")
+        guidance.append(f"Motto: {life_vector.VOICE_PROFILE['motto']}")
+        
+        # הוספת CORE VALUES (רק השמות)
+        guidance.append("\n💎 CORE VALUES:")
+        for value_key, value_data in life_vector.CORE_VALUES.items():
+            guidance.append(f"  • {value_data['name']}")
+        
+        return "\n".join(guidance)
+    
+    def _calculate_stimulus(self, user_input):
+        """
+        מחשב גירוי רגשי מהקלט - עכשיו עם שילוב Life Vector.
+        
+        Returns:
+            float: -1.0 (שלילי מאוד) עד 1.0 (חיובי מאוד)
+        """
+        text_lower = user_input.lower()
+        
+        # חיובי
+        positive = ["תודה", "מעולה", "גאון", "טוב", "כיף", "אהבתי", "מדהים", "thanks", "great", "awesome", "צודק"]
+        positive_score = sum(1 for w in positive if w in text_lower)
+        
+        # שלילי
+        negative = ["טיפש", "גרוע", "סתום", "רע", "מעצבן", "נמאס", "stupid", "bad", "annoying", "לא מועיל"]
+        negative_score = sum(1 for w in negative if w in text_lower)
+        
+        # חישוב סופי
+        if positive_score > 0 and negative_score == 0:
+            return min(0.5, positive_score * 0.2)
+        elif negative_score > 0:
+            # שלילי, אבל Nog לא "נפגע" - הוא מבין שזה חלק מהתהליך
+            return max(-0.4, -negative_score * 0.2)  # פחות אינטנסיבי מקודם
+        else:
+            return 0.1  # ברירת מחדל - קלט ניטרלי
+    
+    def _get_learned_rules(self):
+        """
+        מחזיר את החוקים שנלמדו (מ-evolution.json)
+        """
+        evolution_path = os.path.join(DATA_DIR, "evolution.json")
+        if os.path.exists(evolution_path):
+            try:
+                with open(evolution_path, "r", encoding="utf-8") as f:
+                    rules = json.load(f)
+                    return rules[-3:] if isinstance(rules, list) else []
+            except:
+                return []
+        return []
 
 # יצירת המופע הראשי
 brain = Consciousness()

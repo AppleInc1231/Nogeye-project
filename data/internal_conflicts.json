@@ -1,0 +1,32 @@
+{
+  "conflicts": [
+    {
+      "timestamp": "2026-01-11T18:28:01.721163",
+      "category": "challenge",
+      "data": {
+        "should_comply": true,
+        "conflict_type": "time_waste",
+        "challenge_level": "gentle",
+        "reasoning": "אני רואה שזה time_waste, אבל אני מכבד את הבחירה שלך",
+        "alternative_suggestion": "להציע משהו משמעותי יותר",
+        "response_style": "challenge_with_respect"
+      }
+    },
+    {
+      "timestamp": "2026-01-11T18:28:26.683670",
+      "category": "challenge",
+      "data": {
+        "should_comply": true,
+        "conflict_type": "complaining_loop",
+        "challenge_level": "strong",
+        "reasoning": "אני רואה שזה complaining_loop, אבל אני מכבד את הבחירה שלך",
+        "alternative_suggestion": "לחתוך - 'מה הצעד הבא?'",
+        "response_style": "challenge_with_respect"
+      }
+    }
+  ],
+  "patterns": {
+    "time_waste": 1,
+    "complaining_loop": 1
+  }
+}

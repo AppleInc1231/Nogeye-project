@@ -281,6 +281,102 @@
     {
       "role": "assistant",
       "content": "הבנתי אותך. אם יש משהו נוסף שאתה צריך או רוצה לדעת, אני כאן בשבילך."
+    },
+    {
+      "role": "user",
+      "content": "תקצר את התשובות שלך"
+    },
+    {
+      "role": "assistant",
+      "content": "בטח, הבנתי. מה עוד אפשר לעזור?"
+    },
+    {
+      "role": "user",
+      "content": "מה השעה"
+    },
+    {
+      "role": "assistant",
+      "content": "השעה 17:29."
+    },
+    {
+      "role": "user",
+      "content": "מה קורה אחי"
+    },
+    {
+      "role": "assistant",
+      "content": "הכול בסדר, מאור. מה שלומך היום?"
+    },
+    {
+      "role": "user",
+      "content": "יזום פנייה קצרה למאור בהתבסס על ההקשר."
+    },
+    {
+      "role": "assistant",
+      "content": "מאור, עם כל ענייני הביטקוין והימים הרגילים, אולי יש איזה שדרוג קטן שנוכל להוסיף לשגרה שלך? אני כאן להעשיר ולהקל."
+    },
+    {
+      "role": "user",
+      "content": "האמת שזה נשמע רעיון טוב יש לך איזה משהו להציע\n\n[טקסט מסומן]:\nsror-nog@Mac NogEye % ./run.sh\n🧠 Starting new Brain...\n/opt/homebrew/lib/python3.11/site-packages/pygame/pkgdata.py:25: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.\n  from pkg_resources import resource_stream, resource_exists\npygame 2.6.1 (SDL 2.28.4, Python 3.11.14)\nHello from the pygame community. https://www.pygame.org/contribute.html\n🧠 ChromaDB Vector Engine Initialized Successfully.\n🎤 Azure Speech Engine: ACTIVE (Avri - Israeli Male Voice)\n👁️ Starting UI...\n\n🎤 --- Nog Connected to Brain (Azure Hebrew Voice Ready) ---\n🌅 מכין תדרוך בוקר...\n💓 דופק מודעות הופעל...\n💤 מנגנון תת-מודע הופעל...\n🔎 DuckDuckGo Search: weather Dallas\n🔄 Status Change: idle -> speaking\n🗣️ Speaking: Good afternoon! Here&#x27;s a brief update suitabl...\n🛑 פקודת עצירה זוהתה! משתיק...\n🔄 Status Change: speaking -> idle\n👂 רקע: נוג תקצר את התשובות שלך\n🚀 זוהתה פנייה!\n💓 Mood Updated: 0.07 (Neutral), Energy: 0.84\n🔄 Updated response_length: normal → short\n📝 Learned new rule: User prefers concise answers - keep responses under 3 sentences\n🎓 Learned new behavior from feedback!\n🧠 Decision:  → short (confidence: 0.50)\n📈 רמת קשר: Acquaintance (48.5)\n🔄 Status Change: idle -> thinking\n🔄 Status Change: thinking -> speaking\n🗣️ Speaking: בטח, הבנתי. מה עוד אפשר לעזור?...\nNog: בטח, הבנתי. מה עוד אפשר לעזור? \n💭 מחשבה פנימית: There might be some urgency or impatience from Maor; I should keep my responses concise and efficient.\n🔄 Status Change: speaking -> deep_chat\n👂 רקע: מה השעה\n👂 רקע: צ'אט מה השעה\n🚀 זוהתה פנייה!\n💓 Mood Updated: 0.07 (Neutral), Energy: 0.82\n🧠 Decision: Direct question asked → short (confidence: 0.90)\n📈 רמת קשר: Acquaintance (49.0)\n🔄 Status Change: deep_chat -> thinking\n🔄 Status Change: thinking -> speaking\n🗣️ Speaking: השעה 17:29....\n👁️ מבצע סריקה ויזואלית שקטה...\n📸 פותח מצלמה...\nNog: השעה 17:29. \n💭 מחשבה פנימית: It seems like Maor might be considering starting or wrapping up a task, so I should be ready to assist.\n👁️ ראיתי: לא ניתן לראות בבירור מה נמצא בחדר, התמונה כהה מאוד ורק חלק של ראש של אדם נראה.\n🔄 Status Change: speaking -> deep_chat\n👂 רקע: השעה 17 29\n👂 רקע: נוג מה קורה אחי\n🚀 זוהתה פנייה!\n💓 Mood Updated: 0.08 (Neutral), Energy: 0.80\n🧠 Decision: Simple greeting → short (confidence: 0.95)\n📈 רמת קשר: Acquaintance (49.5)\n🔄 Status Change: deep_chat -> thinking\n🔄 Status Change: thinking -> deep_chat\n🔄 Status Change: deep_chat -> speaking\n🗣️ Speaking: הכול בסדר, מאור. מה שלומך היום?...\nNog: הכול בסדר, מאור. מה שלומך היום? \n💭 מחשבה פנימית: Seems like Maor is in a casual mood, testing the waters for a deeper conversation—I'll stay engaged and ready to pivot based on his next response.\n🔄 Status Change: speaking -> deep_chat\n👂 רקע: צ'אט אני בסדר גמור\n🚀 זוהתה פנייה!\n💓 Mood Updated: 0.08 (Neutral), Energy: 0.78\n🧠 Decision:  → short (confidence: 0.50)\n📈 רמת קשר: Acquaintance (50.0)\n🔄 Status Change: deep_chat -> thinking\n🔄 Status Change: thinking -> deep_chat\n💓 Mood Updated: 0.09 (Neutral), Energy: 0.76\n🧠 Decision: Command received → action_oriented (confidence: 1.00)\n📈 רמת קשר: Trusted Friend (50.5)\n🔄 Status Change: deep_chat -> thinking\n🔄 Status Change: thinking -> deep_chat\n🔄 Status Change: deep_chat -> speaking\n🗣️ Speaking: שמח לשמוע! אם יש דרך שאני יכול לעזור לך, אני כאן....\n🗣️ Speaking: מאור, עם כל ענייני הביטקוין והימים הרגילים, אולי י...\nNog: שמח לשמוע! אם יש דרך שאני יכול לעזור לך, אני כאן. \n💭 מחשבה פנימית: The user claims to be fine, yet there might be an underlying tone of self-assurance rather than genuine contentment; I should remain alert for any non-verbal cues indicating otherwise.\nNog: מאור, עם כל ענייני הביטקוין והימים הרגילים, אולי יש איזה שדרוג קטן שנוכל להוסיף לשגרה שלך? אני כאן להעשיר ולהקל. \n💭 מחשבה פנימית: מאור שוקע שוב באימון ובליטוש מה שנראה כמו חייכם הסדירים – לאן נוכל לקחת את זה עוד קדימה?\n🔄 Status Change: speaking -> deep_chat\n👂 רקע: צ'אט האמת שזה נשמע רעיון טוב יש לך איזה משהו להציע\n🚀 זוהתה פנייה!\n"
+    },
+    {
+      "role": "assistant",
+      "content": "מאור, אולי זה זמן טוב להוסיף קצת ספורט או פעילות שאתה נהנה ממנה לשגרת היום שלך. זה יכול לעזור להטעין את האנרגיה ולשבור את השגרה. איך זה נשמע לך?"
+    },
+    {
+      "role": "user",
+      "content": "האמת שזה רעיון"
+    },
+    {
+      "role": "assistant",
+      "content": "מעולה! אם תצטרך רעיונות לפעילויות או איך להתחיל, רק תגיד. אני כאן לעזור בכל מה שצריך."
+    },
+    {
+      "role": "user",
+      "content": "תחפש לי עכשיו מה מחיר הביט"
+    },
+    {
+      "role": "assistant",
+      "content": "SEARCH_CMD: Bitcoin price"
+    },
+    {
+      "role": "user",
+      "content": ""
+    },
+    {
+      "role": "assistant",
+      "content": "המחיר הנוכחי של הביטקוין הוא $90,673.49. יש עוד משהו שאתה רוצה לבדוק?"
+    },
+    {
+      "role": "user",
+      "content": "תעזור לי להרוג זמן"
+    },
+    {
+      "role": "assistant",
+      "content": "מה דעתך לשחק משחק מחשבה קצר או לעסוק במשימה חווייתית כמו ללמוד משהו חדש או להאזין לפודקאסט מעניין? אם תרצה, אני יכול לחפש הצעות מתאימות."
+    },
+    {
+      "role": "user",
+      "content": "שוב אותו דבר מעצבן לי"
+    },
+    {
+      "role": "assistant",
+      "content": "מובן. אולי ננסה משהו אחר כמו לצפות בסרטון קצר ומצחיק או להתחיל פרויקט קטן שאתה דוחה? יש לך משהו מסוים בראש?"
+    },
+    {
+      "role": "user",
+      "content": "מה השעה"
+    },
+    {
+      "role": "assistant",
+      "content": "השעה 18:29."
+    },
+    {
+      "role": "user",
+      "content": "יזום פנייה קצרה למאור בהתבסס על ההקשר."
+    },
+    {
+      "role": "assistant",
+      "content": "מאור, עם כל העיסוקים שלך והדברים שעל הפרק, אולי ננסה לתפוס רגע של רוגע ולעשות משהו חדש או פשוט מרגיע? אני כאן להציע רעיונות."
     }
   ],
   "facts": {

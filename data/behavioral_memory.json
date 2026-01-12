@@ -1,0 +1,18 @@
+{
+  "communication_preferences": {
+    "response_length": "short",
+    "formality": "casual",
+    "explanation_level": "balanced",
+    "humor": "moderate"
+  },
+  "learned_rules": [
+    "User prefers concise answers - keep responses under 3 sentences"
+  ],
+  "do_not": [],
+  "conversation_patterns": {
+    "typical_greeting": null,
+    "preferred_topics": [],
+    "avoided_topics": []
+  },
+  "last_updated": "2026-01-11T17:28:45.485177"
+}

@@ -521,17 +521,63 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
     rel = safe_read_json(RELATIONSHIP_PATH, {"affinity_score": 0, "relationship_tier": "Stranger"})
     
     brain_instruction = ""
+    decision_reasoning = ""
+    behavioral_rules = ""
+    life_vector_guidance = ""
+    
     if decision_data:
         style = decision_data.get('response_style', 'normal')
+        reasoning = decision_data.get('reasoning', '')
+        confidence = decision_data.get('confidence', 0.5)
+        behavioral_rules = decision_data.get('behavioral_rules', '')
+        life_vector_guidance = decision_data.get('life_vector_guidance', '')
         
+        # === NEW! טיפול בסירוב מוחלט ===
+        if style == 'firm_refusal':
+            conflict_data = decision_data.get('conflict_data', {})
+            refusal_reason = conflict_data.get('reasoning', 'לא יכול לעשות זאת')
+            alternative = conflict_data.get('alternative_suggestion', '')
+            
+            # תגובת סירוב ישירה
+            refusal_response = f"{refusal_reason}\n\n{alternative}"
+            update_ui("סירוב", prompt, refusal_response)
+            speak(refusal_response)
+            print(f"🚫 Nog REFUSED: {refusal_reason}")
+            return  # עוצרים כאן - לא שולחים ל-GPT
+        
+        # === NEW! טיפול באתגור ===
+        has_challenge = decision_data.get('has_challenge', False)
+        challenge_message = decision_data.get('challenge_message', '')
+        
+        # תרגום סגנון להוראות ל-GPT
         if style == 'short_tired': 
-            brain_instruction = "STATUS: Low energy. Be very brief, almost tired. Don't elaborate."
+            brain_instruction = "STATUS: Low energy. Be VERY brief (1-2 sentences max). Sound tired but helpful."
         elif style == 'terse': 
-            brain_instruction = "STATUS: Annoyed. Be sharp, short, and to the point. No politeness."
+            brain_instruction = "STATUS: Annoyed/Bad mood. Be sharp, direct. No pleasantries. Get to the point."
         elif style == 'action_oriented': 
-            brain_instruction = "STATUS: HIGH URGENCY. Skip all pleasantries. Execute commands immediately."
+            brain_instruction = "STATUS: HIGH URGENCY detected. Skip ALL small talk. Execute task immediately."
         elif style == 'friendly_chatty': 
-            brain_instruction = "STATUS: High Affinity. Be warm, funny, use slang, be a 'bro'."
+            brain_instruction = "STATUS: Good mood + Close friend. Be warm, playful, humorous. Talk like a bro."
+        elif style == 'short':
+            brain_instruction = "STATUS: Simple query. Answer briefly (1-2 sentences). Don't over-explain."
+        elif style == 'normal':
+            brain_instruction = "STATUS: Standard interaction. Be natural, balanced, authentic."
+        
+        # אם יש אתגור - מוסיפים הוראה ל-GPT
+        if has_challenge:
+            conflict_data = decision_data.get('conflict_data', {})
+            challenge_severity = conflict_data.get('severity', 'medium')
+            
+            if challenge_severity == 'critical':
+                # אתגור קריטי - תגובה ישירה ללא הצעות
+                brain_instruction += f"\n🚫 CRITICAL CHALLENGE: Say ONLY this: '{challenge_message}'"
+                brain_instruction += "\nDo NOT offer alternatives. Do NOT soften it. Be direct and firm."
+            else:
+                # אתגור רגיל - מוסיף נקודה לתשומת לב
+                brain_instruction += f"\n⚡ CHALLENGE DETECTED: {challenge_message}"
+                brain_instruction += "\nInclude this perspective in your response, but respect user's autonomy."
+        
+        decision_reasoning = f"[Decision Logic: {reasoning} | Confidence: {confidence:.0%}]"
     
     current_time = datetime.now().strftime("%H:%M")
     recent_context = "\n".join(list(ambient_buffer))
@@ -540,10 +586,21 @@ def chat_with_gpt(prompt, image_data=None, selected_context=None, extra_info=Non
 
     system_content = f"""
     IDENTITY: {json.dumps(psyche_profile)}
-    RELATIONSHIP: {rel['relationship_tier']}
+    RELATIONSHIP: {rel['relationship_tier']} (Affinity: {rel.get('affinity_score', 0)})
     LEARNED RULES (EVOLUTION): {learned_rules_text}
     
-    BRAIN DIRECTIVE: {brain_instruction}
+    🧠 BRAIN DIRECTIVE: {brain_instruction}
+    {decision_reasoning}
+    
+    {'═'*60}
+    🎓 BEHAVIORAL MEMORY (User Preferences):
+    {behavioral_rules if behavioral_rules else "No specific preferences yet"}
+    {'═'*60}
+    
+    {'═'*60}
+    🧬 LIFE VECTOR (Core Identity & Values):
+    {life_vector_guidance if life_vector_guidance else "Operating with core values"}
+    {'═'*60}
     
     *** IMPORTANT: YOU HAVE REAL-TIME INTERNET ACCESS ***
     If the user asks for prices (Bitcoin, stocks), news, or real-time facts:
