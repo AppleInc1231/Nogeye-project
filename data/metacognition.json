@@ -1,0 +1,28 @@
+{
+  "confidence_by_domain": {
+    "user_patterns": 0.5,
+    "user_preferences": 0.3,
+    "user_goals": 0.4,
+    "world_knowledge": 0.7,
+    "self_capabilities": 0.8
+  },
+  "uncertainty_threshold": 0.5,
+  "ask_back_triggers": {
+    "ambiguous_reference": true,
+    "missing_critical_info": true,
+    "conflicting_beliefs": true,
+    "low_confidence": true
+  },
+  "calibration": {
+    "predictions_made": 2,
+    "predictions_correct": 0,
+    "accuracy": 0.0,
+    "overconfident": false,
+    "underconfident": false
+  },
+  "meta": {
+    "last_updated": "2026-01-15T17:46:00.039226",
+    "total_ask_backs": 4,
+    "total_uncertainties_expressed": 0
+  }
+}

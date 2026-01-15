@@ -1,0 +1,23 @@
+{
+  "about_user": {},
+  "about_world": {
+    "people_productive_morning": {
+      "statement": "Most people are productive in the morning",
+      "confidence": 0.0,
+      "evidence_for": 0,
+      "evidence_against": 4,
+      "created": "2026-01-12T15:44:30.475667",
+      "last_updated": "2026-01-15T17:12:00.782736",
+      "source": "general_knowledge",
+      "needs_verification": true
+    }
+  },
+  "causal_models": {},
+  "meta": {
+    "total_beliefs": 1,
+    "average_confidence": 0.0,
+    "last_verification": null,
+    "conflicts_detected": [],
+    "last_updated": "2026-01-15T17:12:00.782800"
+  }
+}
